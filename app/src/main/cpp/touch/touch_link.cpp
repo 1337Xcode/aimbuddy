@@ -186,8 +186,9 @@ bool TouchLink::sendLocked(const RequestPacket& packet) {
     return false;
 }
 
-void TouchLink::configure(int displayWidth, int displayHeight, int rotation) {
+void TouchLink::configure(int displayWidth, int displayHeight, int rotation, int panelWidth, int panelHeight) {
     std::lock_guard<std::mutex> lock(mutex_);
+    sendLocked(makeRequest(Request::kPanel, panelWidth, panelHeight));
     sendLocked(makeRequest(Request::kConfigure, displayWidth, displayHeight, rotation));
 }
 

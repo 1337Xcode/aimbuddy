@@ -98,7 +98,10 @@ object NativeBridge {
     @JvmStatic
     external fun usesColourDetection(): Boolean
 
-    /** Tells native code the display's size and rotation and the size of the capture image. */
+    /**
+     * Tells native code the display's size and rotation, the size of the capture image, and the panel's size as it
+     * was built. The display is shown on part of the panel when it was given another shape (`wm size`).
+     */
     @JvmStatic
     external fun configureDisplay(
         displayWidth: Int,
@@ -106,6 +109,8 @@ object NativeBridge {
         captureWidth: Int,
         captureHeight: Int,
         rotation: Int,
+        panelWidth: Int,
+        panelHeight: Int,
     )
 
     @JvmStatic

@@ -59,12 +59,14 @@ int64_t steadyNowNs() {
 AimLoop::AimLoop(Tracker* tracker, const ModelProfile* profile, touch::TouchLink* link, CameraMotion* motion)
     : tracker_(tracker), profile_(profile), link_(link), motion_(motion), controller_(AimSettings(), motion) {}
 
-void AimLoop::setDisplay(int width, int height, int rotation) {
+void AimLoop::setDisplay(int width, int height, int rotation, int panelWidth, int panelHeight) {
     displayChangedNs_.store(steadyNowNs(), std::memory_order_release);
     std::lock_guard<std::mutex> lock(displayMutex_);
     display_.width = width;
     display_.height = height;
     display_.rotation = rotation;
+    display_.panelWidth = panelWidth;
+    display_.panelHeight = panelHeight;
     ++display_.version;
 }
 
@@ -174,7 +176,7 @@ void AimLoop::syncDisplayWithHelper() {
     if (session == configuredSession_ && display.version == configuredDisplayVersion_) {
         return;
     }
-    link_->configure(display.width, display.height, display.rotation);
+    link_->configure(display.width, display.height, display.rotation, display.panelWidth, display.panelHeight);
     controller_.setCrosshair(static_cast<float>(display.width) * 0.5f, static_cast<float>(display.height) * 0.5f);
     if (display.version != configuredDisplayVersion_) {
         controller_.forgetScene();   // the screen turned: the places of the boxes given up on are not the same places now

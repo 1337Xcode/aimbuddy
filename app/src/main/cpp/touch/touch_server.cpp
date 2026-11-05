@@ -356,7 +356,7 @@ void TouchServer::reportPlayerFingers(int64_t now) {
     PlayerFingers::Finger fingers[kMaxRealSlots];
     for (int i = 0; i < count; ++i) {
         const DisplayPoint at =
-            rawToDisplay(contacts[i].x, contacts[i].y, display_.width, display_.height, display_.rotation, rawRange_);
+            rawToDisplay(contacts[i].x, contacts[i].y, display_.width, display_.height, display_.rotation, rawRange_, display_.frame());
         fingers[i] = {contacts[i].trackingId, at.x, at.y};
     }
     player_.update(now, fingers, count, static_cast<float>(display_.width));
@@ -477,6 +477,11 @@ bool TouchServer::handleRequest(const RequestPacket& packet) {
             display_.rotation = packet.c;
             SAY_VERBOSE("display %d x %d, rotation %d", display_.width, display_.height, display_.rotation);
             break;
+        case Request::kPanel:
+            display_.panelWidth = packet.a;
+            display_.panelHeight = packet.b;
+            SAY_VERBOSE("panel %d x %d", display_.panelWidth, display_.panelHeight);
+            break;
         case Request::kEngage:
             engage();
             break;
@@ -512,7 +517,7 @@ void TouchServer::handleAim(const RequestPacket& packet) {
         if (!std::isfinite(x) || !std::isfinite(y)) {
             return;
         }
-        const RawPoint raw = displayToRaw(x, y, display_.width, display_.height, display_.rotation, rawRange_);
+        const RawPoint raw = displayToRaw(x, y, display_.width, display_.height, display_.rotation, rawRange_, display_.frame());
         if (static_cast<Request>(packet.type) == Request::kAimDown) {
             mux_->aimDown(raw.x, raw.y);
         } else {

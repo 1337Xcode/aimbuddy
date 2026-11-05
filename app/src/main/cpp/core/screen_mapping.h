@@ -22,6 +22,48 @@ struct RawPoint {
 };
 
 /**
+ * Where on the panel the display is shown, as shares of the panel's width and height in the display's current
+ * orientation. It is the whole panel unless the display was given a size of another shape than the panel's
+ * (`wm size`, which screen stretching apps use): Android then scales the display to fit the panel, keeps its
+ * shape, centres it, and maps touches into that frame only.
+ */
+struct PanelFrame {
+    float left = 0.0f;
+    float top = 0.0f;
+    float width = 1.0f;
+    float height = 1.0f;
+};
+
+/**
+ * The frame Android shows a display of `displayWidth` by `displayHeight` pixels in (its size in the current
+ * orientation) on a panel of `panelWidth` by `panelHeight` pixels as the panel was built (portrait for a phone).
+ * It follows Android's own rule (LogicalDisplay.configureDisplayLocked), integer division included, so it lands
+ * on the same pixel rows. An unknown panel (zero) gives the whole panel.
+ */
+inline PanelFrame panelFrameFor(int displayWidth, int displayHeight, int rotation, int panelWidth, int panelHeight) {
+    if (displayWidth <= 0 || displayHeight <= 0 || panelWidth <= 0 || panelHeight <= 0) {
+        return PanelFrame();
+    }
+    // The panel's size in the display's current orientation.
+    const bool sideways = ((rotation % 4) + 4) % 2 == 1;
+    const int64_t physWidth = sideways ? panelHeight : panelWidth;
+    const int64_t physHeight = sideways ? panelWidth : panelHeight;
+    int64_t frameWidth = physWidth;
+    int64_t frameHeight = physHeight;
+    if (physWidth * displayHeight < physHeight * displayWidth) {
+        frameHeight = displayHeight * physWidth / displayWidth;    // bars above and below
+    } else {
+        frameWidth = displayWidth * physHeight / displayHeight;    // bars at the sides
+    }
+    PanelFrame frame;
+    frame.left = static_cast<float>((physWidth - frameWidth) / 2) / static_cast<float>(physWidth);
+    frame.top = static_cast<float>((physHeight - frameHeight) / 2) / static_cast<float>(physHeight);
+    frame.width = static_cast<float>(frameWidth) / static_cast<float>(physWidth);
+    frame.height = static_cast<float>(frameHeight) / static_cast<float>(physHeight);
+    return frame;
+}
+
+/**
  * Turns a position on the display into a position in the touchscreen's raw units.
  *
  * The touchscreen reports in the orientation the panel was built in, which for a phone is
@@ -32,12 +74,14 @@ struct RawPoint {
  * they swap with a quarter turn.
  *
  * The result follows the same geometry Android uses to turn raw touches into display positions,
- * run backwards, so a touch sent here lands where it was meant to.
+ * run backwards, so a touch sent here lands where it was meant to. `frame` is where the display is shown on
+ * the panel (see panelFrameFor).
  */
 inline RawPoint displayToRaw(float x, float y, int displayWidth, int displayHeight, int rotation,
-                             const RawRange& range) {
-    const float u = std::clamp(x / static_cast<float>(std::max(displayWidth, 1)), 0.0f, 1.0f);
-    const float v = std::clamp(y / static_cast<float>(std::max(displayHeight, 1)), 0.0f, 1.0f);
+                             const RawRange& range, const PanelFrame& frame = PanelFrame()) {
+    // Position as a share of the panel's width (u) and height (v), in the display's orientation.
+    const float u = frame.left + frame.width * std::clamp(x / static_cast<float>(std::max(displayWidth, 1)), 0.0f, 1.0f);
+    const float v = frame.top + frame.height * std::clamp(y / static_cast<float>(std::max(displayHeight, 1)), 0.0f, 1.0f);
 
     // Position as a fraction along the panel's own width (a) and height (b).
     float a = u;
@@ -70,9 +114,10 @@ struct DisplayPoint {
     float y = 0.0f;
 };
 
-/// The way back from displayToRaw: where on the display a touch the screen reported in raw units is.
+/// The way back from displayToRaw: where on the display a touch the screen reported in raw units is. A touch
+/// outside the frame (in a bar beside a display smaller than the panel) is read as being at the frame's edge.
 inline DisplayPoint rawToDisplay(int32_t rawX, int32_t rawY, int displayWidth, int displayHeight, int rotation,
-                                 const RawRange& range) {
+                                 const RawRange& range, const PanelFrame& frame = PanelFrame()) {
     const float spanX = static_cast<float>(std::max(range.maxX - range.minX, 1));
     const float spanY = static_cast<float>(std::max(range.maxY - range.minY, 1));
     const float a = std::clamp(static_cast<float>(rawX - range.minX) / spanX, 0.0f, 1.0f);
@@ -97,6 +142,9 @@ inline DisplayPoint rawToDisplay(int32_t rawX, int32_t rawY, int displayWidth, i
         default:
             break;
     }
+    // From a share of the panel to a share of the frame the display is shown in.
+    u = std::clamp((u - frame.left) / std::max(frame.width, 1e-6f), 0.0f, 1.0f);
+    v = std::clamp((v - frame.top) / std::max(frame.height, 1e-6f), 0.0f, 1.0f);
     return {u * static_cast<float>(displayWidth), v * static_cast<float>(displayHeight)};
 }
 

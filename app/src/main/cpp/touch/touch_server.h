@@ -70,7 +70,11 @@ private:
         int width = 0;
         int height = 0;
         int rotation = 0;
+        int panelWidth = 0;    ///< The panel as it was built; 0 until the app has said.
+        int panelHeight = 0;
         bool isKnown() const { return width > 0 && height > 0; }
+        /// Where on the panel the display is shown: smaller than the panel after `wm size`.
+        PanelFrame frame() const { return panelFrameFor(width, height, rotation, panelWidth, panelHeight); }
     };
 
     // Setup and teardown.

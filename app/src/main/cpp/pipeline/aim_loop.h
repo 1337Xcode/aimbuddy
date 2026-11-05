@@ -67,8 +67,9 @@ public:
     /// Sets where the measured camera response is reported. Call while stopped.
     void setLearnedSink(LearnedSink sink) { learnedSink_ = std::move(sink); }
 
-    /// Tells the loop the display's size in pixels and rotation (0 to 3, as Android numbers them). Thread safe.
-    void setDisplay(int width, int height, int rotation);
+    /// Tells the loop the display's size in pixels and rotation (0 to 3, as Android numbers them), and the size of the
+    /// panel as it was built, which is larger than the display after `wm size`. Thread safe.
+    void setDisplay(int width, int height, int rotation, int panelWidth, int panelHeight);
 
     /// Starts the loop thread. Does nothing if it is running.
     void start();
@@ -95,6 +96,8 @@ private:
         int width = 0;
         int height = 0;
         int rotation = 0;
+        int panelWidth = 0;
+        int panelHeight = 0;
         uint32_t version = 0;   ///< Counts up with every change, so the loop knows to resend it.
     };
 

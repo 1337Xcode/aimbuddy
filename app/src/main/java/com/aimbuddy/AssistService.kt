@@ -47,7 +47,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
     private var touchHelper: TouchHelper? = null
     private var thermalGovernor: ThermalGovernor? = null
     private var displayManager: DisplayManager? = null
-    private var shown = DisplayShape(0, 0, 0)
+    private var shown = DisplayShape(0, 0, 0, 0, 0)
 
     /** Between the start and the end of a run; false once [shutdown] has begun. */
     private var running = false
@@ -77,7 +77,8 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         }
     }
 
-    private data class DisplayShape(val width: Int, val height: Int, val rotation: Int)
+    /** The display's size and turn, and the panel's size as it was built (larger than the display after `wm size`). */
+    private data class DisplayShape(val width: Int, val height: Int, val rotation: Int, val panelWidth: Int, val panelHeight: Int)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -200,7 +201,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         }
         capture = session
         val (captureWidth, captureHeight) = session.start(shape.width, shape.height)
-        NativeBridge.configureDisplay(shape.width, shape.height, captureWidth, captureHeight, shape.rotation)
+        NativeBridge.configureDisplay(shape.width, shape.height, captureWidth, captureHeight, shape.rotation, shape.panelWidth, shape.panelHeight)
         shown = shape
 
         if (!NativeBridge.start()) {
@@ -300,7 +301,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
             // A new size needs a new mirror; the same size with a new rotation only changes the touch mapping.
             val (captureWidth, captureHeight) =
                 if (sizeChanged && session != null) session.resize(shape.width, shape.height) else session?.imageSize ?: (0 to 0)
-            NativeBridge.configureDisplay(shape.width, shape.height, captureWidth, captureHeight, shape.rotation)
+            NativeBridge.configureDisplay(shape.width, shape.height, captureWidth, captureHeight, shape.rotation, shape.panelWidth, shape.panelHeight)
             shown = shape
             overlay?.keepIconOnScreen()
         } catch (e: Exception) {
@@ -311,10 +312,14 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
     private fun realDisplay(): Display =
         (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)
 
-    /** The whole display in its current orientation: system bars and cutouts included, as the capture sees it. */
+    /**
+     * The whole display in its current orientation: system bars and cutouts included, as the capture sees it. The
+     * panel's size is the display mode's, which does not turn with the display and does not shrink with `wm size`.
+     */
     private fun readDisplayShape(): DisplayShape {
         val bounds = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).maximumWindowMetrics.bounds
-        return DisplayShape(bounds.width(), bounds.height(), realDisplay().rotation)
+        val display = realDisplay()
+        return DisplayShape(bounds.width(), bounds.height(), display.rotation, display.mode.physicalWidth, display.mode.physicalHeight)
     }
 
     // ---------------------------------------------------------------------------------------

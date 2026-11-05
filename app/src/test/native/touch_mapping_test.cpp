@@ -134,3 +134,99 @@ TEST(protocol_packets_keep_their_size_and_floats) {
     CHECK(player.type == static_cast<uint8_t>(Report::kPlayer));
     CHECK(player.a == 2 && player.b == 120 && player.c == 640);
 }
+
+// A display made smaller than its panel (`wm size`, as screen stretching apps do) is shown in a frame in the
+// middle of the panel, and Android maps touches into that frame only. The expected values below are what an
+// emulator with a 1080 x 2400 panel reported for `wm size 1080x1206`: the input viewport's physical frame was
+// rows 597 to 1803, and a touch at panel row 1497 arrived at display row 900.
+namespace {
+
+const RawRange kEmulatorPanel{0, 32767, 0, 32767};
+constexpr int kPanelShort = 1080;
+constexpr int kPanelLong = 2400;
+constexpr int kForcedLong = 1206;
+
+}  // namespace
+
+TEST(frame_of_a_shrunk_display_is_the_one_android_letterboxes_it_into) {
+    const PanelFrame upright = panelFrameFor(kPanelShort, kForcedLong, 0, kPanelShort, kPanelLong);
+    CHECK_NEAR(upright.left, 0.0, 1e-6);
+    CHECK_NEAR(upright.width, 1.0, 1e-6);
+    CHECK_NEAR(upright.top, 597.0 / 2400.0, 1e-6);
+    CHECK_NEAR(upright.height, 1206.0 / 2400.0, 1e-6);
+    // Turned on its side, the frame runs across the panel's long side, which is now the width.
+    const PanelFrame sideways = panelFrameFor(kForcedLong, kPanelShort, 1, kPanelShort, kPanelLong);
+    CHECK_NEAR(sideways.left, 597.0 / 2400.0, 1e-6);
+    CHECK_NEAR(sideways.width, 1206.0 / 2400.0, 1e-6);
+    CHECK_NEAR(sideways.top, 0.0, 1e-6);
+    CHECK_NEAR(sideways.height, 1.0, 1e-6);
+}
+
+TEST(frame_of_a_display_narrower_than_its_panel_has_bars_at_the_sides) {
+    // 540 x 2400 on a 1080 x 2400 panel: the height fills it, and the frame is 540 wide from column 270.
+    const PanelFrame frame = panelFrameFor(540, kPanelLong, 0, kPanelShort, kPanelLong);
+    CHECK_NEAR(frame.left, 270.0 / 1080.0, 1e-6);
+    CHECK_NEAR(frame.width, 540.0 / 1080.0, 1e-6);
+    CHECK_NEAR(frame.top, 0.0, 1e-6);
+    CHECK_NEAR(frame.height, 1.0, 1e-6);
+}
+
+TEST(frame_is_the_whole_panel_when_the_display_fills_it_or_the_panel_is_unknown) {
+    const PanelFrame full = panelFrameFor(kPanelShort, kPanelLong, 0, kPanelShort, kPanelLong);
+    CHECK(full.left == 0.0f && full.top == 0.0f && full.width == 1.0f && full.height == 1.0f);
+    const PanelFrame unknown = panelFrameFor(kPanelShort, kForcedLong, 0, 0, 0);
+    CHECK(unknown.left == 0.0f && unknown.top == 0.0f && unknown.width == 1.0f && unknown.height == 1.0f);
+}
+
+TEST(mapping_puts_a_touch_inside_the_frame_of_a_shrunk_display) {
+    // Upright: display row 900 is panel row 597 + 900 = 1497, which is 1497 / 2400 of the raw range.
+    const PanelFrame upright = panelFrameFor(kPanelShort, kForcedLong, 0, kPanelShort, kPanelLong);
+    const RawPoint middle = displayToRaw(540, 900, kPanelShort, kForcedLong, 0, kEmulatorPanel, upright);
+    CHECK(middle.x == 16384);   // 0.5 * 32767, rounded
+    CHECK(middle.y == 20438);   // 1497 / 2400 * 32767 = 20438.4
+    // The top of the display is the top of the frame, not the top of the panel.
+    const RawPoint top = displayToRaw(540, 0, kPanelShort, kForcedLong, 0, kEmulatorPanel, upright);
+    CHECK(top.y == 8151);       // 597 / 2400 * 32767 = 8150.8
+    // Sideways (rotation 1), display column 900 is the same place on the panel's long side.
+    const PanelFrame sideways = panelFrameFor(kForcedLong, kPanelShort, 1, kPanelShort, kPanelLong);
+    const RawPoint turned = displayToRaw(900, 540, kForcedLong, kPanelShort, 1, kEmulatorPanel, sideways);
+    CHECK(turned.x == 16384);
+    CHECK(turned.y == 20438);
+}
+
+TEST(mapping_reads_a_touch_in_the_frame_back_as_the_display_place_it_is) {
+    const PanelFrame sideways = panelFrameFor(kForcedLong, kPanelShort, 1, kPanelShort, kPanelLong);
+    for (const float x : {0.0f, 301.5f, 900.0f, 1206.0f}) {
+        for (const float y : {0.0f, 540.0f, 1080.0f}) {
+            const RawPoint raw = displayToRaw(x, y, kForcedLong, kPanelShort, 1, kEmulatorPanel, sideways);
+            const DisplayPoint back = rawToDisplay(raw.x, raw.y, kForcedLong, kPanelShort, 1, kEmulatorPanel, sideways);
+            CHECK_NEAR(back.x, x, 0.1);
+            CHECK_NEAR(back.y, y, 0.1);
+        }
+    }
+    // A finger in the bar beside the frame is read as being at the frame's edge.
+    const PanelFrame upright = panelFrameFor(kPanelShort, kForcedLong, 0, kPanelShort, kPanelLong);
+    const DisplayPoint inBar = rawToDisplay(16384, 100, kPanelShort, kForcedLong, 0, kEmulatorPanel, upright);
+    CHECK_NEAR(inBar.y, 0.0, 1e-3);
+}
+
+TEST(mapping_is_unchanged_for_a_display_of_the_panels_own_shape) {
+    // A phone set to a lower resolution of the same shape (1080 x 2400 shown on a 1440 x 3200 panel) has no bars, so a
+    // touch goes where it went before the frame existed: the frame is the whole panel and every raw value is the same.
+    for (int rotation = 0; rotation < 4; ++rotation) {
+        const bool sideways = rotation % 2 == 1;
+        const int width = sideways ? kLongEdge : kShortEdge;
+        const int height = sideways ? kShortEdge : kLongEdge;
+        const PanelFrame frame = panelFrameFor(width, height, rotation, 1440, 3200);
+        CHECK(frame.left == 0.0f && frame.top == 0.0f && frame.width == 1.0f && frame.height == 1.0f);
+        for (const float shareX : {0.0f, 0.37f, 1.0f}) {
+            for (const float shareY : {0.0f, 0.61f, 1.0f}) {
+                const float x = shareX * static_cast<float>(width);
+                const float y = shareY * static_cast<float>(height);
+                const RawPoint withFrame = displayToRaw(x, y, width, height, rotation, kPanel, frame);
+                const RawPoint withoutFrame = displayToRaw(x, y, width, height, rotation, kPanel);
+                CHECK(withFrame.x == withoutFrame.x && withFrame.y == withoutFrame.y);
+            }
+        }
+    }
+}

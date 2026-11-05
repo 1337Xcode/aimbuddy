@@ -33,6 +33,7 @@ enum class Request : uint8_t {
     kAimUp = 8,      ///< Lift the extra finger.
     kPing = 9,       ///< Heartbeat. The helper lets go of the touchscreen if these stop.
     kQuit = 10,      ///< Shut down.
+    kPanel = 11,     ///< a: panel width, b: panel height, in pixels as the panel was built (portrait for a phone). Sent before kConfigure.
 };
 
 /// What the helper tells the app.

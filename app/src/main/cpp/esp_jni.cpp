@@ -378,11 +378,13 @@ JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_usesColourDetection(JN
  * @param captureWidth ImageReader width in pixels
  * @param captureHeight ImageReader height in pixels
  * @param rotation Display rotation, 0 to 3, as Android numbers it
+ * @param panelWidth Panel width in pixels as the panel was built (portrait for a phone)
+ * @param panelHeight Panel height in pixels, likewise
  */
 JNIEXPORT void JNICALL
 Java_com_aimbuddy_NativeBridge_configureDisplay(JNIEnv* /* env */, jclass /* clazz */, jint displayWidth,
                                                 jint displayHeight, jint captureWidth, jint captureHeight,
-                                                jint rotation) {
+                                                jint rotation, jint panelWidth, jint panelHeight) {
     aimbuddy::CaptureGeometry geometry;
     geometry.screenWidth = displayWidth;
     geometry.screenHeight = displayHeight;
@@ -397,9 +399,9 @@ Java_com_aimbuddy_NativeBridge_configureDisplay(JNIEnv* /* env */, jclass /* cla
     if (turned) {
         g_pipeline.forgetScene();
     }
-    g_aimLoop.setDisplay(displayWidth, displayHeight, rotation);
-    LOGI("Display %dx%d rotation %d, capture %dx%d", displayWidth, displayHeight, rotation, captureWidth,
-         captureHeight);
+    g_aimLoop.setDisplay(displayWidth, displayHeight, rotation, panelWidth, panelHeight);
+    LOGI("Display %dx%d rotation %d on a %dx%d panel, capture %dx%d", displayWidth, displayHeight, rotation, panelWidth,
+         panelHeight, captureWidth, captureHeight);
 }
 
 /** @brief Starts detection and, if the assist is switched on, the aim loop. */

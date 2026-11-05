@@ -44,7 +44,8 @@ public:
     uint32_t session() const { return session_.load(std::memory_order_acquire); }
 
     // --- Requests ---
-    void configure(int displayWidth, int displayHeight, int rotation);
+    /// The display's size and turn, and the panel's size as it was built: the display can be shown on part of it.
+    void configure(int displayWidth, int displayHeight, int rotation, int panelWidth, int panelHeight);
     void engage();
     void release();
     void aimDown(float x, float y);
