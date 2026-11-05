@@ -50,7 +50,7 @@ Root is shown as Not asked yet until you press Start or Test, because the only w
 |---------------------------|---------------|
 | Aim assist needs Shizuku or root. | Neither is available. Start Shizuku, or grant root, then press Stop and Start. |
 | This phone does not let the touch helper use the touchscreen. | Shizuku or root started the helper, but this phone refused it access to the touchscreen. On the Touch access screen, try the other choice: root if you were using Shizuku, or Shizuku if you were using root, and press Test touch access. |
-| Another program is holding the touchscreen. | Another app that reads the touchscreen directly is running. Close it. |
+| Another program is holding the touchscreen. | Another app that reads the touchscreen directly is running, such as a key mapper or a screen stretching app with its fullscreen touch on. Close it, or switch that option off. Only one program can hold the touchscreen at a time. |
 | The touch helper could not be started. | Press Stop and Start again. If it keeps happening, check `adb logcat -s TouchHelper:W aimtouch:V` for the reason. |
 
 Other things you may notice:
