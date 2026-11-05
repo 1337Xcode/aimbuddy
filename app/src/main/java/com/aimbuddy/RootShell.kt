@@ -1,6 +1,7 @@
 package com.aimbuddy
 
 import android.util.Log
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -53,6 +54,9 @@ object RootShell {
                 status = Status.UNAVAILABLE
                 return false   // waiting for the player's answer in a prompt: do not ask again
             }
+            if (answer == Answer.CANCELLED) {
+                return false   // the assist was stopped while asking: nothing was learned, and no second prompt is shown
+            }
         }
         Log.i(TAG, "Root refused or not available")
         status = Status.UNAVAILABLE
@@ -60,22 +64,39 @@ object RootShell {
     }
 
     /** What the superuser binary said to one attempt. */
-    private enum class Answer { GRANTED, REFUSED, TIMED_OUT }
+    private enum class Answer { GRANTED, REFUSED, TIMED_OUT, CANCELLED }
 
-    /** Asks for root in one style and reports how it went. */
-    private fun tryRoot(candidate: Style, timeoutSeconds: Long): Answer = try {
-        val process = ProcessBuilder(suCommand(candidate, "id")).redirectErrorStream(true).start()
-        if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+    /**
+     * Asks for root in one style and reports how it went. A thread interrupted while it waits is being told to stop
+     * (the service does that when the assist ends): the request is withdrawn and the interrupt stays set.
+     */
+    private fun tryRoot(candidate: Style, timeoutSeconds: Long): Answer {
+        val process = try {
+            ProcessBuilder(suCommand(candidate, "id")).redirectErrorStream(true).start()
+        } catch (e: IOException) {
+            Log.i(TAG, "No superuser binary: ${e.message}")
+            return Answer.REFUSED
+        }
+        val answered = try {
+            process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            process.destroyForcibly()
+            // Throwing the exception cleared the interrupt; set it again so the caller can see it.
+            Thread.currentThread().interrupt()
+            return Answer.CANCELLED
+        }
+        if (!answered) {
             process.destroyForcibly()
             Log.w(TAG, "Root request timed out after ${timeoutSeconds}s")
-            Answer.TIMED_OUT
-        } else {
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            if (process.exitValue() == 0 && output.contains("uid=0")) Answer.GRANTED else Answer.REFUSED
+            return Answer.TIMED_OUT
         }
-    } catch (e: Exception) {
-        Log.i(TAG, "No superuser binary: ${e.message}")
-        Answer.REFUSED
+        val output = try {
+            process.inputStream.bufferedReader().use { it.readText() }
+        } catch (e: IOException) {
+            Log.w(TAG, "Could not read the answer to the root request: ${e.message}")
+            return Answer.REFUSED
+        }
+        return if (process.exitValue() == 0 && output.contains("uid=0")) Answer.GRANTED else Answer.REFUSED
     }
 
     /** Starts `command` as root, with its output merged into one stream. */
