@@ -19,11 +19,17 @@ import java.io.OutputStream
  */
 internal class ShizukuProcess private constructor(private val remote: IRemoteProcess) : Process() {
 
-    override fun getOutputStream(): OutputStream = ParcelFileDescriptor.AutoCloseOutputStream(remote.outputStream)
+    // The pipes are fetched here, while start() runs inside its caller's error handling: fetched later, on a thread
+    // that reads the output, a server that died in between would throw where nothing catches it and end the app.
+    private val output: OutputStream = ParcelFileDescriptor.AutoCloseOutputStream(remote.outputStream)
+    private val input: InputStream = ParcelFileDescriptor.AutoCloseInputStream(remote.inputStream)
+    private val errors: InputStream = ParcelFileDescriptor.AutoCloseInputStream(remote.errorStream)
 
-    override fun getInputStream(): InputStream = ParcelFileDescriptor.AutoCloseInputStream(remote.inputStream)
+    override fun getOutputStream(): OutputStream = output
 
-    override fun getErrorStream(): InputStream = ParcelFileDescriptor.AutoCloseInputStream(remote.errorStream)
+    override fun getInputStream(): InputStream = input
+
+    override fun getErrorStream(): InputStream = errors
 
     override fun waitFor(): Int = remote.waitFor()
 
@@ -36,14 +42,7 @@ internal class ShizukuProcess private constructor(private val remote: IRemotePro
         false   // the server is gone, and the program went with it
     }
 
-    override fun destroy() {
-        try {
-            remote.destroy()
-        } catch (e: RemoteException) {
-            // The server is gone: it ended its programs, this one included, when it went.
-            Log.w(TAG, "Could not end the helper through Shizuku: ${e.message}")
-        }
-    }
+    override fun destroy() = endQuietly(remote)
 
     companion object {
         private const val TAG = "TouchHelper"
@@ -52,7 +51,22 @@ internal class ShizukuProcess private constructor(private val remote: IRemotePro
         fun start(command: List<String>): Process {
             val service = IShizukuService.Stub.asInterface(Shizuku.getBinder())
                 ?: throw IllegalStateException("Shizuku is not running.")
-            return ShizukuProcess(service.newProcess(command.toTypedArray(), null, null))
+            val remote = service.newProcess(command.toTypedArray(), null, null)
+            try {
+                return ShizukuProcess(remote)
+            } catch (e: RemoteException) {
+                endQuietly(remote)   // started, but its output cannot be read: it must not be left running
+                throw e
+            }
+        }
+
+        /** Ends [remote] when the server can still be reached; if it cannot, the program already went with it. */
+        private fun endQuietly(remote: IRemoteProcess) {
+            try {
+                remote.destroy()
+            } catch (e: RemoteException) {
+                Log.w(TAG, "Could not end the helper through Shizuku: ${e.message}")
+            }
         }
     }
 }
