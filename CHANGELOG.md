@@ -51,6 +51,7 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 - A store list made for a newer version of AimBuddy was reported as no connection. The Models page now says the store needs a newer version of AimBuddy.
 - On a screen set to another shape than the panel's (`wm size`, which screen stretching apps use), the extra finger touched the wrong place. Android shows such a screen in a frame centred on the panel, with bars beside it, and takes touches only inside that frame, while the finger was placed as if the screen filled the panel. On an emulator with a 1080 by 2400 panel set to 1080 by 1206 and turned to landscape, the game saw no movement from a drag of 200 by 120 px; it now sees 204 by 121 px, and 203 by 123 px with no size set.
 - When another program held the touchscreen, for example a screen stretching app's fullscreen touch, switching steering on did nothing and the Home screen did not say why. It now says that another program is holding the touchscreen, and the message goes once that program lets go. The two cannot work at once: only one program can hold the touchscreen.
+- On Tecno, Infinix and itel phones with Shizuku 13.6.0, the touch helper could fail to start through Shizuku, and the touch test said only that it could not be started. Shizuku started it inside a service of its own, and that service dies on these phones while it starts (Shizuku issue 2048). Shizuku now runs the helper directly, without that service. When the helper still cannot be started, the test now shows why under the message.
 
 ## [0.3.5-beta.2] - 2026-10-29
 
