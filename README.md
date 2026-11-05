@@ -356,7 +356,7 @@ stateDiagram-v2
     direction LR
     [*] --> Tentative: unmatched detection of 50% or more
     Tentative --> Tracked: three matches
-    Tentative --> [*]: one miss
+    Tentative --> [*]: two misses in a row
     Tracked --> Coasting: missed
     Coasting --> Tracked: matched again
     Coasting --> Lost: unseen for 350 ms
