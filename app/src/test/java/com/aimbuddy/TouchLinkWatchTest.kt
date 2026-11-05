@@ -27,6 +27,20 @@ class TouchLinkWatchTest {
     }
 
     @Test
+    fun aHelperWhoseTakeoverIsRefusedIsBlockedByAnotherProgram() {
+        // State 1 is "released": the helper has the touchscreen open but does not hold it.
+        assertTrue(isTakeoverRefused(decodeLinkStatus(pack(true, TouchHelper.Reason.GRAB_FAILED, 1))))
+    }
+
+    @Test
+    fun aHelperThatHoldsTheScreenOrWasReleasedOnPurposeIsNotBlocked() {
+        assertFalse(isTakeoverRefused(decodeLinkStatus(pack(true, TouchHelper.Reason.NONE, 3))))           // merging
+        assertFalse(isTakeoverRefused(decodeLinkStatus(pack(true, TouchHelper.Reason.REQUESTED, 1))))      // steering switched off
+        assertFalse(isTakeoverRefused(decodeLinkStatus(pack(true, TouchHelper.Reason.NONE, 2))))           // waiting for fingers to lift
+        assertFalse(isTakeoverRefused(decodeLinkStatus(pack(false, TouchHelper.Reason.GRAB_FAILED, 1))))   // gone: that is another story
+    }
+
+    @Test
     fun aHelperIsStartedAgainAFewTimesAndThenNoMore() {
         val budget = RestartBudget(maxRestarts = 3, windowMs = 60_000)
 

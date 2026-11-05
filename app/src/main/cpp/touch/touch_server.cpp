@@ -486,6 +486,10 @@ bool TouchServer::handleRequest(const RequestPacket& packet) {
             engage();
             break;
         case Request::kRelease:
+            if (phase_ == Phase::kReleased) {
+                // Answered even when nothing was held, so a refusal reported earlier does not stay on the app's screen.
+                sendStatus(State::kReleased, Reason::kRequested);
+            }
             disengage(Reason::kRequested);
             break;
         case Request::kAimDown:

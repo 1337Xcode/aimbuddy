@@ -10,6 +10,16 @@ internal data class LinkStatus(val connected: Boolean, val state: Int, val reaso
 internal fun decodeLinkStatus(raw: Int): LinkStatus =
     LinkStatus(connected = (raw ushr 24) and 1 == 1, state = raw and 0xFF, reason = (raw ushr 8) and 0xFFFF)
 
+/** The helper's "released" state: it has the touchscreen open but does not hold it (protocol::State::kReleased). */
+private const val STATE_RELEASED = 1
+
+/**
+ * Whether the helper is there but cannot take the touchscreen over, because another program holds it (a screen
+ * stretching app's fullscreen touch, a key mapper). The extra finger can do nothing until that program lets go.
+ */
+internal fun isTakeoverRefused(status: LinkStatus): Boolean =
+    status.connected && status.state == STATE_RELEASED && status.reason == TouchHelper.Reason.GRAB_FAILED
+
 /**
  * Whether a helper that dropped out is worth starting again. The player holding both volume keys is taking
  * the screen back on purpose, and starting the helper again would take it from them once more.

@@ -25,7 +25,8 @@ object AssistState {
 
         data object Starting : Touch
 
-        data class Connected(val route: TouchHelper.Route) : Touch
+        /** Ready to add the finger; [blocked] while another program holds the touchscreen and the helper cannot take it. */
+        data class Connected(val route: TouchHelper.Route, val blocked: Boolean = false) : Touch
 
         /** The helper could not be used; the assist still draws targets but cannot move the aim. */
         data class Unavailable(val reason: Int, val detail: String) : Touch

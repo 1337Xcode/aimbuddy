@@ -235,11 +235,14 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
      * again, a few times; then the screen says why it is not there.
      */
     private fun checkTouchHelper() {
-        if (AssistState.state.value.touch !is AssistState.Touch.Connected) {
-            return
-        }
+        val touch = AssistState.state.value.touch as? AssistState.Touch.Connected ?: return
         val status = decodeLinkStatus(NativeBridge.touchStatus())
         if (status.connected) {
+            // Another program holding the touchscreen leaves the finger with nothing to do: the Home screen says so.
+            val blocked = isTakeoverRefused(status)
+            if (blocked != touch.blocked) {
+                AssistState.setTouch(touch.copy(blocked = blocked))
+            }
             return
         }
         // A helper that died without a word leaves no reason behind: it could not be reached.

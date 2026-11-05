@@ -76,7 +76,7 @@ private fun statusFor(snapshot: AssistState.Snapshot): Status = when (snapshot.p
         Status(stringResource(R.string.status_stopping), stringResource(R.string.hint_stopping))
     AssistState.Phase.RUNNING -> {
         val hint = when (val touch = snapshot.touch) {
-            is AssistState.Touch.Connected -> R.string.hint_running_assist
+            is AssistState.Touch.Connected -> if (touch.blocked) R.string.hint_touch_busy else R.string.hint_running_assist
             AssistState.Touch.Starting -> R.string.hint_connecting
             is AssistState.Touch.Unavailable -> unavailableHint(touch.reason)
             AssistState.Touch.Off -> R.string.hint_running_no_assist
