@@ -6,6 +6,10 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+## [0.3.5-beta.3] - 2026-11-05
+
+AimBuddy General 2 in the model store, targets followed more closely through turns, cover and missed frames, touch access through Shizuku 13.6.0 on Tecno, Infinix and itel phones, and fixes for screen stretching apps.
+
 ### Added
 - The line to the nearest target can start at the top or the bottom of the screen instead of the crosshair (Visuals, Line starts at). From an edge it runs to the side of the box that faces it.
 - `training/universal/`, the scripts that build AimBuddy General 2: they cut squares from gameplay video and PC screenshots the way the app cuts them, label the videos with two teacher models, train, export to NCNN and score the result on the PC sets' test pictures. Six tests in `training/tests` hold the labelling rules: where a third-person game draws the player, and which broadcast squares show a face card.
@@ -17,7 +21,6 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 ### Changed
 - AimBuddy General 2 in the model store, offered as an update to everyone with version 1. It learned from Free Fire and PUBG Mobile footage as well as four PC shooters, and it has a class for the player's own character, which the app leaves out, so a third-person game no longer gets the player boxed. It reads the same 256 px square as version 1 and takes as long: 8.1 ms a frame against 8.6 ms, on a laptop processor with the two run in turn. On 602 views from Free Fire and PUBG Mobile videos it was never trained on, holding 57 players counted by eye, at the default confidence it found 30 players where version 1 found 13, and it boxed the own character in none of the views where version 1 did in 111. It drew 6 boxes on things that are not people where version 1 drew 2. The scripts that build it are in `training/universal/`, and `docs/Training.md` lists its sources and how it was judged.
 - Targets that turn, stop or start are followed more closely. Each target is now tracked by two filters side by side, a steady one for a target standing still or running straight and an agile one that finds a new speed within a frame or two, blended by how well each explains the boxes. A box much further off than even a sharp turn explains is trusted less, so one stray box cannot fling a target across the screen. In the simulated game the aim's error on a target strafing at 400 px/s and turning every half second went from 50.5 to 46.2 px at 60 detections a second and from 81.6 to 76.8 px at 15, and a target running at 300 px/s seen 15 times a second was under the crosshair 36% of the time instead of 9%. On a still target the aim settles 0.02 to 0.04 s later at most camera gains and 0.10 s later with a 110 ms delay.
-
 - Targets that go behind cover, or that the detector misses in a frame or two, are followed more closely. A missed target keeps its pace until the hold time is up, in the box drawn and in the aim, where before it slowed at every frame that missed it. When it shows again, its speed is taken from how far it went while unseen. One forgotten after 350 ms is known again for a second after, when a box shows on its path, and is shown at once. In the simulated game a runner at 300 px/s hidden for 0.3 s out of every 1.2 s was under the crosshair 70% of the time instead of 54% at 60 detections a second and 60% instead of 37% at 30, a runner seen 30 times a second (one frame in ten missed) 98% instead of 79%, and a target strafing at 400 px/s and turning every half second 16% instead of 9% at 30 a second. A runner that stops behind cover is reached again 0.21 s after it shows instead of 0.11 s at 60 a second.
 
 ### Fixed
