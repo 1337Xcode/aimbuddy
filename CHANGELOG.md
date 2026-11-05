@@ -49,6 +49,8 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 - On a touchscreen that numbers fingers 0 to 9 instead of counting up, the player's next finger could arrive with the number the extra finger was using, and Android treats two contacts with one number as one finger. The merger now gives such a finger a number of its own, so the two stay apart.
 - Cancelling a model download that had stalled did not end it if the store fetched a model's picture in the meantime: Cancel then closed the picture's connection, or none once the picture had arrived, instead of the model's. Pictures are now fetched outside what Cancel closes.
 - A store list made for a newer version of AimBuddy was reported as no connection. The Models page now says the store needs a newer version of AimBuddy.
+- On a screen set to another shape than the panel's (`wm size`, which screen stretching apps use), the extra finger touched the wrong place. Android shows such a screen in a frame centred on the panel, with bars beside it, and takes touches only inside that frame, while the finger was placed as if the screen filled the panel. On an emulator with a 1080 by 2400 panel set to 1080 by 1206 and turned to landscape, the game saw no movement from a drag of 200 by 120 px; it now sees 204 by 121 px, and 203 by 123 px with no size set.
+- When another program held the touchscreen, for example a screen stretching app's fullscreen touch, switching steering on did nothing and the Home screen did not say why. It now says that another program is holding the touchscreen, and the message goes once that program lets go. The two cannot work at once: only one program can hold the touchscreen.
 
 ## [0.3.5-beta.2] - 2026-10-29
 
