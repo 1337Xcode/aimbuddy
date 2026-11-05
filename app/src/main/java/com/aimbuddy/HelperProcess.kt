@@ -2,6 +2,7 @@ package com.aimbuddy
 
 import android.util.Log
 import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -10,11 +11,12 @@ import kotlin.concurrent.thread
 /**
  * A running touch helper program, as seen by whoever started it.
  *
- * The helper prints one line, "listening 41234", once it is ready for the app to connect, and the
- * port in it was picked by the system when the helper bound it, so no other program can hold it. This
- * class reads that line, and keeps the last lines the helper printed so the player can be told why
- * it stopped. [TouchHelper] uses it for both routes, which differ only in how the process is started
- * ([ShizukuProcess] or [RootShell]).
+ * The helper prints one line, "listening 41234", on its standard output once it is ready for the app
+ * to connect, and the port in it was picked by the system when the helper bound it, so no other program
+ * can hold it. Everything else it has to say, why it stopped included, goes to its error output. This
+ * class reads both, finds that line, and keeps the last lines so the player can be told why it stopped.
+ * [TouchHelper] uses it for both routes, which differ only in how the process is started ([ShizukuProcess],
+ * whose error output is a pipe of its own, or [RootShell], which joins the two).
  */
 class HelperProcess(private val process: Process) {
 
@@ -23,26 +25,38 @@ class HelperProcess(private val process: Process) {
     private val port = CompletableFuture<Int>()
 
     init {
-        // Read the output as it comes so the pipe never fills up and stalls the helper.
+        // Read both outputs as they come, so neither pipe fills up and stalls the helper.
         thread(name = "aimtouch-output", isDaemon = true) {
             try {
-                process.inputStream.bufferedReader().forEachLine { line ->
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, line)   // the helper runs with --verbose in debug builds
-                    }
-                    synchronized(lock) {
-                        lines.addLast(line)
-                        while (lines.size > MAX_LINES) {
-                            lines.removeFirst()
-                        }
-                    }
+                readLines(process.inputStream) { line ->
                     LISTENING.matchEntire(line.trim())?.let { port.complete(it.groupValues[1].toInt()) }
                 }
-            } catch (_: IOException) {
-                // The helper was stopped while this thread waited for its output: there is nothing left to read.
             } finally {
                 port.complete(NOT_LISTENING)   // the output ended: the helper is gone (no effect if it already spoke)
             }
+        }
+        thread(name = "aimtouch-errors", isDaemon = true) {
+            readLines(process.errorStream) {}
+        }
+    }
+
+    /** Keeps every line of [stream] in the log and hands it to [onLine], until the stream ends. */
+    private fun readLines(stream: InputStream, onLine: (String) -> Unit) {
+        try {
+            stream.bufferedReader().forEachLine { line ->
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, line)   // the helper runs with --verbose in debug builds
+                }
+                synchronized(lock) {
+                    lines.addLast(line)
+                    while (lines.size > MAX_LINES) {
+                        lines.removeFirst()
+                    }
+                }
+                onLine(line)
+            }
+        } catch (_: IOException) {
+            // The helper was stopped while this thread waited for its output: there is nothing left to read.
         }
     }
 

@@ -19,17 +19,25 @@ class TouchHelperTest {
 
     private data class WaitResult(val port: Int, val interruptKept: Boolean)
 
-    /** A program whose output is what the test writes to [output]; it never ends unless the test closes that. */
+    /**
+     * A program whose standard output is what the test writes to [output] and whose error output is [errors], kept
+     * apart as Shizuku keeps them. It never ends unless the test closes them.
+     */
     private class FakeProgram : Process() {
         val output = PipedOutputStream()
-        private val readEnd = PipedInputStream(output)
+        val errors = PipedOutputStream()
+        private val outputReadEnd = PipedInputStream(output)
+        private val errorsReadEnd = PipedInputStream(errors)
 
-        override fun getInputStream(): InputStream = readEnd
+        override fun getInputStream(): InputStream = outputReadEnd
         override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
-        override fun getErrorStream(): InputStream = InputStream.nullInputStream()
+        override fun getErrorStream(): InputStream = errorsReadEnd
         override fun waitFor(): Int = 0
         override fun exitValue(): Int = 0
-        override fun destroy() = output.close()
+        override fun destroy() {
+            output.close()
+            errors.close()
+        }
     }
 
     @Test
@@ -45,15 +53,25 @@ class TouchHelperTest {
     }
 
     @Test
-    fun aHelperThatEndsWithoutSayingWhereItListensGivesNotListening() {
+    fun aHelperThatEndsWithoutSayingWhereItListensGivesNotListeningAndKeepsWhyFromItsErrorOutput() {
         val program = FakeProgram()
         val helper = HelperProcess(program)
 
-        program.output.write("cannot open /dev/input\n".toByteArray())
-        program.output.close()
+        // The helper says why it stops on its error output, as say() in touch_server.cpp does.
+        program.errors.write("aimtouch: no touchscreen found\n".toByteArray())
+        program.destroy()
 
         assertEquals(HelperProcess.NOT_LISTENING, helper.awaitPort(10_000))
-        assertEquals("cannot open /dev/input", helper.log())
+        assertEquals("aimtouch: no touchscreen found", awaitLog(helper))
+    }
+
+    /** The log once the reader threads have caught up: they run apart from the wait for the port. */
+    private fun awaitLog(helper: HelperProcess): String {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (helper.log().isEmpty() && System.nanoTime() < deadline) {
+            Thread.sleep(1)
+        }
+        return helper.log()
     }
 
     @Test
