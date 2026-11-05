@@ -78,6 +78,9 @@ struct TrackerConfig {
     float lowScore = 0.12f;           ///< Detections between lowScore and highScore only keep tracked targets alive.
     float birthScore = 0.50f;         ///< A new target needs a detection at least this confident.
     int confirmHits = 3;              ///< Matches needed before a new target counts as real.
+    int tentativeMisses = 1;          ///< Frames in a row a target not yet confirmed may be missed in and still be kept. With
+                                      ///< none, a detector that misses one frame in three rarely confirms a running player
+                                      ///< before it is out of reach; a false alarm seen once is still gone a frame later.
     float showTentativeScore = 0.90f; ///< A tentative target this confident is drawn right away.
     float minIou = 0.05f;             ///< Boxes overlapping less than this are matched by distance instead.
     float gateSigmas = 4.0f;          ///< Non-overlapping boxes match only within this many standard deviations
@@ -205,6 +208,7 @@ private:
         float seenVelocityX = 0.0f; ///< Its own speed then, screen pixels per second, before any fading.
         float seenVelocityY = 0.0f;
         int64_t missNs = 0;       ///< Time unseen while inside the scanned region.
+        int missesInARow = 0;     ///< Updates in a row without a matching detection.
         int64_t unobservedNs = 0; ///< Time unseen while outside the scanned region.
         bool matchedNow = false;  ///< Paired with a detection in the latest update.
     };

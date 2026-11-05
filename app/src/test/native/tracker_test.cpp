@@ -195,6 +195,34 @@ TEST(tracker_ignores_a_single_frame_false_alarm) {
     CHECK(drawnCount(tracker, 40 * kMs) == 0);    // and it never turned into a target
 }
 
+TEST(tracker_confirms_a_runner_that_the_detector_misses_every_other_frame) {
+    // A slow detector (15 results a second) that finds a running player in every other result: three sightings with a
+    // miss between each. Needing three sightings in a row, it was never confirmed and steering never took it up.
+    Tracker tracker;
+    const int64_t periodNs = 66 * kMs;
+    for (int frame = 0; frame < 5; ++frame) {
+        const float x = 300.0f + 20.0f * static_cast<float>(frame);   // 300 px/s
+        Detection d = box(x, 300.0f, 50.0f, 150.0f, 0.62f);
+        const bool seen = frame % 2 == 0;
+        tracker.update(seen ? &d : nullptr, seen ? 1 : 0, frame * periodNs, nullptr);
+    }
+    TrackView view;
+    CHECK(viewNear(tracker, 4 * periodNs, 380.0f, 300.0f, &view));
+    CHECK(view.phase == TrackPhase::kTracked);
+}
+
+TEST(tracker_drops_a_new_box_missed_twice_in_a_row) {
+    Tracker tracker;
+    Detection d = box(300.0f, 300.0f, 50.0f, 150.0f, 0.62f);
+    tracker.update(&d, 1, 0, nullptr);
+    tracker.update(nullptr, 0, 33 * kMs, nullptr);
+    tracker.update(nullptr, 0, 66 * kMs, nullptr);
+    tracker.update(&d, 1, 99 * kMs, nullptr);
+    tracker.update(&d, 1, 132 * kMs, nullptr);
+    // Two sightings since it was dropped: not yet a target, and not sure enough to be drawn before it is one.
+    CHECK(drawnCount(tracker, 133 * kMs) == 0);
+}
+
 TEST(tracker_shows_a_confident_new_target_immediately) {
     Tracker tracker;
     Detection d = box(300.0f, 300.0f, 50.0f, 150.0f, 0.9f);
@@ -646,7 +674,7 @@ TEST(tracker_keeps_the_identity_of_a_target_whose_box_jumps_away) {
 
 TEST(tracker_keeps_a_target_whose_box_jumps_away_when_the_next_frame_misses_it) {
     // The jumped box is sure enough to be drawn at once, so it takes the identity on its first sighting. It is then
-    // the confirmed target it took over: one missed frame keeps it, where a new target is dropped at its first miss.
+    // the confirmed target it took over: a missed frame keeps it, where a new target is dropped after two in a row.
     Tracker tracker;
     for (int frame = 0; frame < 10; ++frame) {
         Detection d = box(868.0f, 463.0f, 45.0f, 123.0f, 0.83f);

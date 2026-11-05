@@ -259,6 +259,7 @@ void Tracker::correctTrack(Track& track, const Detection& detection) const {
     track.seenY = centerY;
     track.missNs = 0;
     track.unobservedNs = 0;
+    track.missesInARow = 0;
     track.phase = track.hits >= config_.confirmHits ? TrackPhase::kTracked : TrackPhase::kTentative;
 }
 
@@ -445,7 +446,9 @@ void Tracker::update(const Detection* detections, int count, int64_t captureNs, 
             continue;
         }
         if (track.phase == TrackPhase::kTentative) {
-            removeTrackAt(i);  // one miss is enough to discard a target that was never confirmed
+            if (++track.missesInARow > config_.tentativeMisses) {
+                removeTrackAt(i);  // missed too often in a row to be confirmed: most likely a false alarm
+            }
             continue;
         }
         track.phase = TrackPhase::kCoasting;
