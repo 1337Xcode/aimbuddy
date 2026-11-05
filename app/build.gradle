@@ -200,8 +200,6 @@ android {
         compose = true
         prefab = true
         buildConfig = true
-        // IHelperHost: how the app talks to the touch helper service that Shizuku starts.
-        aidl = true
     }
 
     packaging {

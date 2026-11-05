@@ -2,55 +2,91 @@ package com.aimbuddy
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
 /**
- * Stopping the assist while the touch helper is still starting interrupts the thread that waits for
- * it. That wait has to give up quietly: an exception there ended the whole app in 0.3.5-beta.1.
+ * The app learns where the touch helper listens from the line it prints. Stopping the assist while the
+ * helper is still starting interrupts the thread that waits for that line, and the wait has to give up
+ * quietly: an exception there ended the whole app in 0.3.5-beta.1.
  */
 class TouchHelperTest {
 
-    private data class WaitResult(val opened: Boolean, val interruptKept: Boolean)
+    private data class WaitResult(val port: Int, val interruptKept: Boolean)
 
-    @Test
-    fun aLatchThatOpensInTimeEndsTheWaitWithTrue() {
-        val latch = CountDownLatch(1)
-        latch.countDown()
+    /** A program whose output is what the test writes to [output]; it never ends unless the test closes that. */
+    private class FakeProgram : Process() {
+        val output = PipedOutputStream()
+        private val readEnd = PipedInputStream(output)
 
-        assertTrue(awaitUnlessInterrupted(latch, 5))
+        override fun getInputStream(): InputStream = readEnd
+        override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
+        override fun getErrorStream(): InputStream = InputStream.nullInputStream()
+        override fun waitFor(): Int = 0
+        override fun exitValue(): Int = 0
+        override fun destroy() = output.close()
     }
 
     @Test
-    fun aLatchThatStaysClosedEndsTheWaitWithFalseAndLeavesNoInterrupt() {
-        val latch = CountDownLatch(1)
+    fun theWaitEndsWithThePortTheHelperPrints() {
+        val program = FakeProgram()
+        val helper = HelperProcess(program)
 
-        assertFalse(awaitUnlessInterrupted(latch, 0))
+        program.output.write("aimtouch 1.0\nlistening 41234\n".toByteArray())
+        program.output.flush()
+
+        assertEquals(41234, helper.awaitPort(10_000))
+        program.destroy()
+    }
+
+    @Test
+    fun aHelperThatEndsWithoutSayingWhereItListensGivesNotListening() {
+        val program = FakeProgram()
+        val helper = HelperProcess(program)
+
+        program.output.write("cannot open /dev/input\n".toByteArray())
+        program.output.close()
+
+        assertEquals(HelperProcess.NOT_LISTENING, helper.awaitPort(10_000))
+        assertEquals("cannot open /dev/input", helper.log())
+    }
+
+    @Test
+    fun aHelperThatSaysNothingInTimeGivesNotListeningAndLeavesNoInterrupt() {
+        val program = FakeProgram()
+        val helper = HelperProcess(program)
+
+        assertEquals(HelperProcess.NOT_LISTENING, helper.awaitPort(0))
         assertFalse(Thread.currentThread().isInterrupted)
+        program.destroy()
     }
 
     @Test
     fun aThreadInterruptedWhileWaitingGivesUpAndKeepsTheInterrupt() {
-        val latch = CountDownLatch(1)
+        val program = FakeProgram()
+        val helper = HelperProcess(program)
         val wait = FutureTask {
-            val opened = awaitUnlessInterrupted(latch, 60)
-            WaitResult(opened, interruptKept = Thread.currentThread().isInterrupted)
+            val port = helper.awaitPort(60_000)
+            WaitResult(port, interruptKept = Thread.currentThread().isInterrupted)
         }
         val waiter = Thread(wait)
         waiter.start()
-        waitUntilWaiting(waiter)
+        waitUntilParked(waiter)
 
         waiter.interrupt()
 
         // An exception thrown by the wait comes out of get() as an ExecutionException and fails the test.
-        assertEquals(WaitResult(opened = false, interruptKept = true), wait.get(10, TimeUnit.SECONDS))
+        assertEquals(WaitResult(HelperProcess.NOT_LISTENING, interruptKept = true), wait.get(10, TimeUnit.SECONDS))
+        program.destroy()
     }
 
-    /** Returns once [thread] sits inside its timed wait, so the interrupt lands during the wait and not before it. */
-    private fun waitUntilWaiting(thread: Thread) {
+    /** Returns once [thread] sits inside its wait, so the interrupt lands during the wait and not before it. */
+    private fun waitUntilParked(thread: Thread) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (thread.state != Thread.State.TIMED_WAITING) {
             check(System.nanoTime() < deadline) { "the thread never started waiting (it is ${thread.state})" }

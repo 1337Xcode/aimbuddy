@@ -1,17 +1,11 @@
 package com.aimbuddy
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.os.IBinder
 import android.util.Log
 import rikka.shizuku.Shizuku
 import java.io.File
 import java.security.SecureRandom
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Starts the touch helper, the small program that reads the touchscreen and adds the assist's
@@ -66,10 +60,8 @@ class TouchHelper(private val context: Context) {
     }
 
     private val random = SecureRandom()
-    private var hostArgs: Shizuku.UserServiceArgs? = null
-    private var hostConnection: ServiceConnection? = null
-    private var host: IHelperHost? = null
-    private var rootHelper: HelperProcess? = null
+    private var helper: HelperProcess? = null
+    private var startError = ""
 
     /** True when Shizuku is running and has been allowed for this app. */
     fun isShizukuReady(): Boolean = try {
@@ -116,35 +108,19 @@ class TouchHelper(private val context: Context) {
     /** Ends the helper: the app disconnects (the helper then gives the touchscreen back) and its process is stopped. */
     fun stop() {
         NativeBridge.touchDisconnect()
-        try {
-            host?.stop()
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not stop the helper through Shizuku: ${e.message}")
-        }
-        val args = hostArgs
-        val connection = hostConnection
-        if (args != null && connection != null) {
-            try {
-                Shizuku.unbindUserService(args, connection, true)
-            } catch (e: Throwable) {
-                Log.w(TAG, "Could not unbind the Shizuku service: ${e.message}")
-            }
-        }
-        host = null
-        hostArgs = null
-        hostConnection = null
-        rootHelper?.stop()
-        rootHelper = null
+        helper?.stop()
+        helper = null
     }
 
     private fun tryRoute(route: Route): Outcome {
-        val helper = File(context.applicationInfo.nativeLibraryDir, HELPER_FILE)
-        if (!helper.exists()) {
-            return Outcome.Failed(Reason.UNREACHABLE, "The touch helper is missing from this install (${helper.path}).")
+        val program = File(context.applicationInfo.nativeLibraryDir, HELPER_FILE)
+        if (!program.exists()) {
+            return Outcome.Failed(Reason.UNREACHABLE, "The touch helper is missing from this install (${program.path}).")
         }
+        startError = ""
         val token = newToken()
         val command = buildList {
-            add(helper.path)
+            add(program.path)
             add("--port")
             add("0")   // let the helper pick: it says which port it got
             add("--token")
@@ -152,10 +128,7 @@ class TouchHelper(private val context: Context) {
             if (BuildConfig.DEBUG) add("--verbose")
         }
 
-        val port = when (route) {
-            Route.SHIZUKU -> launchWithShizuku(command)
-            Route.ROOT -> launchWithRoot(command)
-        }
+        val port = launch(route, command)
         if (port <= 0) {
             val log = helperLog()
             Log.w(TAG, "Touch helper through $route did not start: $log")
@@ -174,73 +147,29 @@ class TouchHelper(private val context: Context) {
         return Outcome.Failed(reason, Reason.describe(reason) + if (log.isNotBlank()) "\n$log" else "")
     }
 
-    /** Starts the helper through Shizuku. Returns the port it listens on, or a value of 0 or less. */
-    private fun launchWithShizuku(command: List<String>): Int {
-        val latch = CountDownLatch(1)
-        var connected: IHelperHost? = null
-        val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                connected = IHelperHost.Stub.asInterface(binder)
-                latch.countDown()
+    /**
+     * Starts the helper as the shell user through Shizuku, or as root, and waits for it to say where it listens.
+     * Returns the port, or a value of 0 or less; why it failed is then in [helperLog].
+     */
+    private fun launch(route: Route, command: List<String>): Int {
+        val process = try {
+            when (route) {
+                Route.SHIZUKU -> ShizukuProcess.start(command)
+                Route.ROOT -> RootShell.start(command)
             }
-
-            override fun onServiceDisconnected(name: ComponentName) {
-                connected = null
-            }
-        }
-        // A tag of its own for every start: Shizuku keeps one record for each tag, and binding to the record of a
-        // service that is still being taken down (the one this start follows on a stop, or on a helper that died)
-        // hangs until the bind times out.
-        val args = Shizuku.UserServiceArgs(ComponentName(context.packageName, HelperHost::class.java.name))
-            .daemon(false)
-            .tag("touch-${serviceStarts.incrementAndGet()}")
-            .processNameSuffix("touch")
-            .debuggable(BuildConfig.DEBUG)
-            .version(BuildConfig.AIMBUDDY_VERSION.hashCode())
-        try {
-            Shizuku.bindUserService(args, connection)
-        } catch (e: Throwable) {
-            Log.w(TAG, "Shizuku refused to start the helper service: ${e.message}")
+        } catch (e: Exception) {
+            // Shown to the player under the failure: Shizuku refused, or the program could not be run.
+            startError = "Could not start the helper through $route: ${e.message ?: e.javaClass.simpleName}"
+            Log.w(TAG, startError, e)
             return 0
         }
-        hostArgs = args
-        hostConnection = connection
-        if (!awaitUnlessInterrupted(latch, SHIZUKU_BIND_SECONDS)) {
-            val why = if (Thread.currentThread().isInterrupted) "the assist was stopped first" else "it took too long"
-            Log.w(TAG, "Shizuku did not start the helper service: $why")
-            return 0
-        }
-        val service = connected ?: return 0
-        host = service
-        return try {
-            service.start(command.toTypedArray(), HELPER_START_MS)
-        } catch (e: Exception) {
-            Log.w(TAG, "Shizuku call failed: ${e.message}")
-            0
-        }
-    }
-
-    /** Starts the helper as root. Returns the port it listens on, or a value of 0 or less. */
-    private fun launchWithRoot(command: List<String>): Int {
-        return try {
-            val started = HelperProcess(RootShell.start(command))
-            rootHelper = started
-            started.awaitPort(HELPER_START_MS.toLong())
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not start the helper as root: ${e.message}")
-            0
-        }
+        val started = HelperProcess(process)
+        helper = started
+        return started.awaitPort(HELPER_START_MS)
     }
 
     /** What the helper has printed, for the player to read when something fails. */
-    private fun helperLog(): String {
-        val fromShizuku = try {
-            host?.log().orEmpty()
-        } catch (_: Exception) {
-            ""
-        }
-        return fromShizuku.ifBlank { rootHelper?.log().orEmpty() }
-    }
+    private fun helperLog(): String = helper?.log().orEmpty().ifBlank { startError }
 
     /** A secret only this app and the helper it started know: 64 random bits as 16 hexadecimal digits. */
     private fun newToken(): String {
@@ -252,29 +181,10 @@ class TouchHelper(private val context: Context) {
     private companion object {
         const val TAG = "TouchHelper"
 
-        /** Counts the services started through Shizuku in this process, to give each its own tag. */
-        val serviceStarts = AtomicInteger()
-
         const val HELPER_FILE = "libaimtouch.so"
         const val ROOT_PROMPT_SECONDS = 30L
-        const val SHIZUKU_BIND_SECONDS = 10L
 
         // Starting the helper takes a few milliseconds; this only matters when something is wrong.
-        const val HELPER_START_MS = 5000
+        const val HELPER_START_MS = 5000L
     }
 }
-
-/**
- * Waits up to [timeoutSeconds] for [latch] to open and says whether it did. A thread that is
- * interrupted while it waits is being told to stop (the service does that when the assist ends), so
- * the answer is false and the interrupt stays set for the caller to see: an exception thrown here
- * would end a background thread, and with it the whole app.
- */
-internal fun awaitUnlessInterrupted(latch: CountDownLatch, timeoutSeconds: Long): Boolean =
-    try {
-        latch.await(timeoutSeconds, TimeUnit.SECONDS)
-    } catch (_: InterruptedException) {
-        // Throwing the exception cleared the interrupt; set it again so the caller can see it.
-        Thread.currentThread().interrupt()
-        false
-    }

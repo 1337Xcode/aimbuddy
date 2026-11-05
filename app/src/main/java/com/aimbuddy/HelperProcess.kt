@@ -4,6 +4,7 @@ import android.util.Log
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.concurrent.thread
 
 /**
@@ -12,8 +13,8 @@ import kotlin.concurrent.thread
  * The helper prints one line, "listening 41234", once it is ready for the app to connect, and the
  * port in it was picked by the system when the helper bound it, so no other program can hold it. This
  * class reads that line, and keeps the last lines the helper printed so the player can be told why
- * it stopped. It is used both by [HelperHost] (the Shizuku route) and by [TouchHelper] (the root
- * route), which differ only in how the process is started.
+ * it stopped. [TouchHelper] uses it for both routes, which differ only in how the process is started
+ * ([ShizukuProcess] or [RootShell]).
  */
 class HelperProcess(private val process: Process) {
 
@@ -45,17 +46,24 @@ class HelperProcess(private val process: Process) {
         }
     }
 
-    /** Waits for the helper to say where it listens. Returns the port, or [NOT_LISTENING] if it ended or took too long. */
+    /**
+     * Waits for the helper to say where it listens. Returns the port, or [NOT_LISTENING] if it ended or took too long.
+     * A thread interrupted while it waits is being told to stop (the service does that when the assist ends): the
+     * answer is then [NOT_LISTENING] and the interrupt stays set, so the caller tries no other route. An exception
+     * thrown here would end a background thread, and with it the whole app.
+     */
     fun awaitPort(timeoutMs: Long): Int = try {
         port.get(timeoutMs, TimeUnit.MILLISECONDS)
-    } catch (_: java.util.concurrent.TimeoutException) {
+    } catch (_: TimeoutException) {
+        NOT_LISTENING
+    } catch (_: InterruptedException) {
+        // Throwing the exception cleared the interrupt; set it again so the caller can see it.
+        Thread.currentThread().interrupt()
         NOT_LISTENING
     }
 
     /** The last lines the helper printed. */
     fun log(): String = synchronized(lock) { lines.joinToString("\n") }
-
-    fun isAlive(): Boolean = process.isAlive
 
     /** Ends the helper. It also ends by itself when the app disconnects. */
     fun stop() {
