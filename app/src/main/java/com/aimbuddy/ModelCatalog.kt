@@ -152,9 +152,9 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             val folder = File(model.files.modelPath).parentFile
             if (folder != null && folder.name == model.id && folder.parentFile?.name == "models") {
                 folder.deleteRecursively()
-            } else {
-                model.files.paths.forEach { File(it).delete() }
             }
+            // Files outside the model's own folder (an entry saved by an earlier build) go one by one.
+            model.files.paths.forEach { File(it).delete() }
         } catch (_: Exception) {
             // The files are only leftovers once the model is off the list.
         }
