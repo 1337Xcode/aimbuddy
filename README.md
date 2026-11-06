@@ -490,6 +490,10 @@ Three kinds of figure follow, and each says where it was measured. No phone has 
 | Colour finder, 256 px square, 3 people | 0.47 ms | 0.52 ms |
 | Colour finder, 448 px square, 3 people | 1.2 ms | 1.4 ms |
 | Decoding a model's output, 256 px, 3 classes | 4.8 µs | 5.3 µs |
+| Writing the square into a TFLite model's input, 256 px, floats pixel by pixel | 36 µs | 42 µs |
+| Writing the square into a TFLite model's input, 256 px, floats in colour planes | 63 µs | 78 µs |
+| Writing the square into a TFLite model's input, 256 px, 8-bit values in colour planes | 58 µs | 63 µs |
+| Writing the square into a TFLite model's input, 320 px, floats in colour planes | 0.10 ms | 0.12 ms |
 | Camera look, 256 px square | 0.92 ms | 1.6 ms |
 | Camera look, 448 px square | 1.0 ms | 1.4 ms |
 | Tracker update, 6 detections | 1.3 µs | 1.5 µs |
@@ -498,7 +502,7 @@ Three kinds of figure follow, and each says where it was measured. No phone has 
 | Touch merger, one report of a finger move and a move of the extra finger | 0.029 µs | 0.031 µs |
 | Overlay fingerprint of 60 kB of draw data | 13 µs | 13 µs |
 
-Apart from the detector, which depends on the model and the phone, the camera look is the one step that takes a noticeable share of a frame (16.7 ms at 60 Hz). It runs after the frame has been handed to the detector, and at most about 30 times a second. The tracker update costs about twice what it did with one filter per axis (0.57 µs), because each axis now runs two filters and mixes them. Within the detector, on this processor through NCNN's Python binding with three threads, running AimBuddy General 2 takes about 8 ms, turning the square into the model's input 0.3 to 0.6 ms, and decoding the output 5 µs, so the model is nearly all of it.
+Apart from the detector, which depends on the model and the phone, the camera look is the one step that takes a noticeable share of a frame (16.7 ms at 60 Hz). It runs after the frame has been handed to the detector, and at most about 30 times a second. The tracker update costs about twice what it did with one filter per axis (0.57 µs), because each axis now runs two filters and mixes them. Within the detector, on this processor through NCNN's Python binding with three threads, running AimBuddy General 2 takes about 8 ms, turning the square into the model's input 0.3 to 0.6 ms, and decoding the output 5 µs, so the model is nearly all of it. A TFLite model's input is written in 36 to 63 µs at 256 px, so there too the model is nearly all of it.
 
 ### Learning an unknown camera, in simulation
 
