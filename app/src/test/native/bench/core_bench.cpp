@@ -21,6 +21,7 @@
 #include "core/detection_decoder.h"
 #include "core/fingerprint.h"
 #include "core/global_motion.h"
+#include "core/model_tensors.h"
 #include "core/touch_mux.h"
 #include "core/tracker.h"
 #include "simulated_game.h"
@@ -171,6 +172,43 @@ void benchDecoder(int runs) {
     });
     if (count != 6) {
         std::printf("  (the decoder kept %d boxes, not the 6 players)\n", count);
+    }
+}
+
+/// Writing the detector's region into a TFLite model's input, for each layout and type of value a model may ask for.
+void benchModelInput(int runs) {
+    struct Case {
+        const char* name;
+        int size;
+        PixelLayout layout;
+        TensorElement element;
+    };
+    const Case cases[] = {
+        {"TFLite input, 256 px, float, pixel by pixel", 256, PixelLayout::kInterleaved, TensorElement::kFloat32},
+        {"TFLite input, 256 px, float, planes", 256, PixelLayout::kPlanar, TensorElement::kFloat32},
+        {"TFLite input, 256 px, 8-bit, planes", 256, PixelLayout::kPlanar, TensorElement::kInt8},
+        {"TFLite input, 320 px, float, planes", 320, PixelLayout::kPlanar, TensorElement::kFloat32},
+    };
+    testing::Random random(5);
+    for (const Case& c : cases) {
+        std::vector<uint8_t> picture(static_cast<size_t>(c.size) * c.size * 4);
+        for (uint8_t& byte : picture) {
+            byte = static_cast<uint8_t>(random.uniform() * 256.0);
+        }
+        std::vector<float> tensor(static_cast<size_t>(c.size) * c.size * 3);
+        InputSpec spec;
+        spec.size = c.size;
+        spec.layout = c.layout;
+        spec.element = c.element;
+        spec.quantization.scale = 1.0f / 255.0f;
+        spec.quantization.zeroPoint = -128;
+        InputWriter writer;
+        writer.configure(spec);
+        measure(c.name, runs, 10, [&] {
+            for (int i = 0; i < 10; ++i) {
+                writer.write(picture.data(), c.size * 4, tensor.data());
+            }
+        });
     }
 }
 
@@ -671,6 +709,7 @@ int main(int argc, char** argv) {
     std::printf("| step | median (us) | 95th percentile (us) | runs |\n| --- | ---: | ---: | ---: |\n");
     benchColourFinder(runs);
     benchDecoder(runs);
+    benchModelInput(runs);
     benchCameraLook(runs);
     benchTracker(runs);
     benchAimStep(runs);
