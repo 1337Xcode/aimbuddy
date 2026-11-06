@@ -24,7 +24,7 @@ def _preprocess_frame(frame, target_imgsz: int, source_crop: int, capture_height
     """Mirror the runtime preprocessing pipeline so training distribution
     matches deployment distribution.
 
-    Runtime path (esp_jni.cpp + yolo_detector.cpp::preprocess):
+    Runtime path (esp_jni.cpp + ncnn_detector.cpp, NcnnDetector::detect):
       1. ImageReader hands us a `capture_height`p RGBA buffer
          (CAPTURE_WIDTH x CAPTURE_HEIGHT = 1280 x 720).
       2. Center-crop a square of side `source_crop` (adaptive 224-320 at

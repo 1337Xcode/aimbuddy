@@ -28,7 +28,7 @@ Everything runs on the phone. The app's only network use is the model store and 
 | | |
 |---|---|
 | Runs on | Android 11 or newer, arm64 |
-| Sees with | An NCNN model on the CPU or through Vulkan, or an experimental colour matcher that needs no model |
+| Sees with | An NCNN model on the CPU or through Vulkan, a TFLite model through LiteRT on the CPU or the GPU, or an experimental colour matcher that needs no model |
 | Aims with | A feedback controller that measures the game's camera while it aims |
 | Touches with | One extra finger added to the real touchscreen by a helper that Shizuku or root starts |
 | Draws with | Dear ImGui in a `TextureView`: corner marks, an aim point, two fields of view, readouts |
@@ -126,7 +126,12 @@ classDiagram
     class DetectionPipeline
     class RoiCapture
     class LatestMailbox
-    class YoloDetector
+    class Detector {
+        <<interface>>
+        detect(frame)
+    }
+    class NcnnDetector
+    class TfliteDetector
     class ColourBlobFinder
     class GlobalMotionEstimator
     class Tracker
@@ -148,7 +153,9 @@ classDiagram
 
     DetectionPipeline *-- RoiCapture
     RoiCapture *-- LatestMailbox
-    DetectionPipeline *-- YoloDetector
+    DetectionPipeline *-- Detector
+    NcnnDetector ..|> Detector
+    TfliteDetector ..|> Detector
     DetectionPipeline *-- ColourBlobFinder
     DetectionPipeline *-- GlobalMotionEstimator
     DetectionPipeline *-- Tracker
@@ -334,7 +341,7 @@ The detector reads a square round the crosshair, between 1 and 1.75 times the mo
 flowchart LR
     start["Press Start"] --> choice{"Find targets<br/>with"}
     choice -->|Colour| colour["Colour finder<br/>no model to load"]
-    choice -->|Model| time["Time the model on the CPU and on Vulkan<br/>3 warm-up runs, 12 timed, median"]
+    choice -->|Model| time["Time the model on the CPU and on the GPU<br/>3 warm-up runs, 12 timed, median"]
     time --> faster{"GPU under 80%<br/>of the CPU's time?"}
     faster -->|no| cpu["Use the CPU"]
     faster -->|yes| agree{"GPU answers a test<br/>picture like the CPU?"}
@@ -343,6 +350,8 @@ flowchart LR
 ```
 
 The GPU is shared with the game, so it has to be clearly faster. It also has to give the CPU's answer to a test picture (the sorted values of the two outputs within 5% of the CPU's range at 64 ranks, and none that is not a number), because a driver that is fast and wrong would leave the detector blind. While Android reports that the phone is warm, detection is limited to 30 runs a second, and to 15 when it is hot. `FrameThinner` keeps to that schedule by skipping frames, not by holding them back, so a frame that is detected is detected the moment it arrives.
+
+A model comes in one of two formats, and only the part that runs the network differs. An NCNN model (`.param` and `.bin`) runs on the CPU or through Vulkan. A TFLite model (one `.tflite` file) runs through LiteRT 1.4.2: on the CPU through XNNPACK, or through LiteRT's GPU delegate (OpenCL, half precision), chosen by the same timing and test picture. The model says how it wants its picture, channels per pixel or in planes, floats or 8-bit integers, and the detector writes exactly that straight into the model's input with one table look-up per value, after the same resize the NCNN path uses. Decoding, tracking and everything after are shared. The LiteRT libraries are opened only when a `.tflite` model is loaded, so an NCNN model never loads them.
 
 <details>
 <summary>Tracking: Kalman filters with two-pass matching</summary>
@@ -452,7 +461,7 @@ stateDiagram-v2
 
 ## Models and updates
 
-The app carries no model: the APK is about 7 MB and a first run opens on the Models page, where AimBuddy General (9.2 MB) is one tap away. The store is a static `model/index.json` served from this repository, listing each model's files with their size and SHA-256. Every file is checked against those figures, a model replaces the old one only when it is complete, and a failed or cancelled download leaves the working model alone. A pair of `.param` and `.bin` files can be imported too, and is kept only if the detector can load it. See [model/README.md](model/README.md).
+The app carries no model: the APK is about 10.6 MB, 2.9 MB of it LiteRT for `.tflite` models, and a first run opens on the Models page, where AimBuddy General (9.2 MB) is one tap away. The store is a static `model/index.json` served from this repository, listing each model's files with their size and SHA-256. Every file is checked against those figures, a model replaces the old one only when it is complete, and a failed or cancelled download leaves the working model alone. A pair of `.param` and `.bin` files, or one `.tflite` file, can be imported too, and is kept only if the detector can load it. [docs/Training.md](docs/Training.md#tflite-export) says how to export a `.tflite` model that keeps up with the game. See [model/README.md](model/README.md).
 
 AimBuddy General 2 is made for phones first. It learned from Free Fire and PUBG Mobile footage and from four PC shooters, and it has a class for the player's own character, which the app leaves out. It reads the same 256 px square as version 1 and takes as long (8.1 ms a frame against 8.6 ms on a laptop processor, the two run in turn). It was judged on 602 views from Free Fire and PUBG Mobile videos it never saw, with 57 players in them counted by eye. At the default confidence it found 30 of the players, where version 1 found 13 and sunxds 17. It boxed the player's own character in none of the views, where version 1 did in 111, and it drew 6 boxes on things that are not people (a pylon, a distant car and a figure painted on a car), where version 1 drew 2. On the test pictures of four PC sets, which come from the same games it trained on, it found 86% of the players in CS:GO, 78% in Apex Legends, 97% in Halo Infinite and 68% in Far Cry 6, where version 1 found 18%, 5%, 0% and 58%. [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) says how it is built and judged.
 
@@ -580,7 +589,7 @@ Each build generates its own launcher icon from a random seed; `-Paimbuddy.iconS
 
 ## Credits
 
-[NCNN](https://github.com/Tencent/ncnn) runs the model and [Dear ImGui](https://github.com/ocornut/imgui) draws the in-game menu. [Shizuku](https://github.com/RikkaApps/Shizuku) provides touch access without root. The app is built with Jetpack Compose and the Geist font. The detection models are made with [Ultralytics](https://github.com/ultralytics/ultralytics) YOLO. AimBuddy General learned from video labelled by sunxds, a model from [sunone_aimbot](https://github.com/SunOner/sunone_aimbot) by SunOner, and from the CS:GO, Apex Legends, Halo Infinite and Far Cry 6 sets of [Roboflow 100](https://universe.roboflow.com/roboflow-100) (CC BY 4.0); [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) lists every source. The full list, with licenses, is under Settings, About, Open source notices.
+[NCNN](https://github.com/Tencent/ncnn) and [LiteRT](https://ai.google.dev/edge/litert) run the models and [Dear ImGui](https://github.com/ocornut/imgui) draws the in-game menu. [Shizuku](https://github.com/RikkaApps/Shizuku) provides touch access without root. The app is built with Jetpack Compose and the Geist font. The detection models are made with [Ultralytics](https://github.com/ultralytics/ultralytics) YOLO. AimBuddy General learned from video labelled by sunxds, a model from [sunone_aimbot](https://github.com/SunOner/sunone_aimbot) by SunOner, and from the CS:GO, Apex Legends, Halo Infinite and Far Cry 6 sets of [Roboflow 100](https://universe.roboflow.com/roboflow-100) (CC BY 4.0); [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) lists every source. The full list, with licenses, is under Settings, About, Open source notices.
 
 ## License
 

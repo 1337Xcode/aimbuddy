@@ -73,7 +73,7 @@ These paths run every frame. Extra care is required:
 
 | Path | File | Rules |
 |------|------|-------|
-| Detection loop | `pipeline/detection_pipeline.cpp`, `detector/yolo_detector.cpp` | No allocs, no locks, pre-allocated buffers only |
+| Detection loop | `pipeline/detection_pipeline.cpp`, `detector/ncnn_detector.cpp`, `detector/tflite_detector.cpp`, `core/model_tensors.cpp` | No allocs, no locks, pre-allocated buffers only |
 | Tracker | `core/tracker.cpp` | Fixed-size arrays, no heap, no logging |
 | Aim controller | `core/aim_controller.cpp` | Snapshot settings, no blocking, bounded math |
 | Overlay render | `renderer/imgui_menu.cpp` | No setting writes during draw, defer saves |

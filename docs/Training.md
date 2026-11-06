@@ -303,6 +303,19 @@ The export writes its files to `training/outputs/export/` and leaves the app alo
 - **On your own phone.** Copy `model.param` and `model.bin` to the phone and pick them in the app under Models, Import.
 - **For everyone.** Put the three files in a folder `model/<id>/`, fill in the title, description and author in `model.json`, raise its `version` whenever the files change, run `python model/index.py` and open a pull request. [model/README.md](../model/README.md) has the details. The weights must be yours to share under a license the project can redistribute.
 
+## TFLite Export
+
+The app also runs a YOLO detector exported to TFLite, through LiteRT. Copy the `.tflite` file to the phone and pick it under Models, Import; the app checks that it can load the model before it keeps it.
+
+```bash
+yolo export model=best.pt format=litert imgsz=256
+```
+
+- **Size.** Export at the size you train for on the phone: 256 or 320. The model's work grows with the square of its input, so a 640 px model, the Ultralytics default, does about six times the work of a 256 px one and will not keep up with a game at 60 frames a second on most phones.
+- **Output.** Keep the default raw output. An export with `nms=False` puts out finished boxes in rows of six numbers, which the app cannot tell from a two-class model without a description, and an imported file has none.
+- **Versions.** From Ultralytics 8.4.83, `format=tflite` is the same as `format=litert`, which runs on Linux and macOS and writes a model that takes its picture as colour planes. Older versions write one that takes it pixel by pixel. The app reads either, and float or 8-bit integer inputs and outputs, from the model itself.
+- **Classes.** Without a description, one class is an enemy, and two are an enemy and its head; further classes are left out.
+
 Path format note:
 - Configuration paths intentionally use forward slashes (`/`) for cross-platform behavior, including on Windows.
 
