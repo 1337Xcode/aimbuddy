@@ -67,6 +67,27 @@ void writePicture(const uint8_t* rgba, int stride, const InputSpec& spec, const 
     }
 }
 
+/// Steps of the quantization that the ends of its range may be away from 0 and 1.
+constexpr float kRangeToleranceSteps = 2.0f;
+
+/// Whether the lowest and highest value T can store stand for about 0 and 1, the range the colours are given in.
+template <typename T>
+bool rangeIsZeroToOne(const Quantization& quantization) {
+    const float lowest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::min()) - quantization.zeroPoint);
+    const float highest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::max()) - quantization.zeroPoint);
+    const float tolerance = kRangeToleranceSteps * quantization.scale;
+    return std::fabs(lowest) <= tolerance && std::fabs(highest - 1.0f) <= tolerance;
+}
+
+/// An integer input can be filled when its scale is usable and its range stands for colours from 0 to 1: a model
+/// whose input stands for raw pixels (0 to 255) or for -1 to 1 would be given the wrong numbers.
+bool standsForZeroToOne(TensorElement element, const Quantization& quantization) {
+    if (!(quantization.scale > 0.0f && std::isfinite(quantization.scale))) {
+        return false;
+    }
+    return element == TensorElement::kInt8 ? rangeIsZeroToOne<int8_t>(quantization) : rangeIsZeroToOne<uint8_t>(quantization);
+}
+
 template <typename T>
 void dequantizeAll(const T* values, const Quantization& quantization, int count, float* out) {
     for (int i = 0; i < count; ++i) {
@@ -109,7 +130,7 @@ bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols) {
 
 bool InputWriter::configure(const InputSpec& spec) {
     const bool integer = spec.element != TensorElement::kFloat32;
-    if (spec.size <= 0 || (integer && !(spec.quantization.scale > 0.0f && std::isfinite(spec.quantization.scale)))) {
+    if (spec.size <= 0 || (integer && !standsForZeroToOne(spec.element, spec.quantization))) {
         return false;
     }
     spec_ = spec;

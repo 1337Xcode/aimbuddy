@@ -214,9 +214,13 @@ bool TfliteDetector::readInput(const Engine& engine, const ModelProfile& declare
     }
     spec.quantization = toQuantization(api_->tensorQuantization(engine.input));
     const size_t bytes = static_cast<size_t>(spec.size) * spec.size * kRgbChannels * elementBytes(spec.element);
-    if (api_->tensorByteSize(engine.input) != bytes || !inputWriter_.configure(spec)) {
-        LOGE("The model's input cannot be filled: %zu bytes, scale %g", api_->tensorByteSize(engine.input),
-             spec.quantization.scale);
+    if (api_->tensorByteSize(engine.input) != bytes) {
+        LOGE("The model's input has %zu bytes, not %zu", api_->tensorByteSize(engine.input), bytes);
+        return false;
+    }
+    if (!inputWriter_.configure(spec)) {
+        LOGE("The model's 8-bit input (scale %g, zero point %d) does not stand for colours from 0 to 1, which is what "
+             "AimBuddy gives a model", spec.quantization.scale, spec.quantization.zeroPoint);
         return false;
     }
     if (declared.inputSize > 0 && declared.inputSize != spec.size) {

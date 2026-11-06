@@ -51,7 +51,10 @@ bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols);
  */
 class InputWriter {
 public:
-    /// Prepares the tables for one input. False when an integer input has no usable scale.
+    /**
+     * Prepares the tables for one input. False when an integer input has no usable scale, or when its range does
+     * not stand for 0 to 1 (a model that takes raw pixels, or -1 to 1), which this writer would fill wrongly.
+     */
     bool configure(const InputSpec& spec);
 
     /// Writes a spec.size by spec.size RGBA picture, `stride` bytes a row, into `tensor` (alpha is dropped).

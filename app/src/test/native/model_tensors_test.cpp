@@ -110,13 +110,13 @@ TEST(signed_input_is_quantized_with_the_model_scale) {
     }
 }
 
-TEST(unsigned_input_is_quantized_and_kept_in_range) {
-    // Half a step per byte value: the brighter half of the bytes would overflow and is held at 255.
+TEST(unsigned_input_is_quantized_plane_by_plane) {
+    // One step per byte value from zero: the stored values are the bytes themselves.
     InputWriter writer;
-    CHECK(writer.configure(specOf(PixelLayout::kPlanar, TensorElement::kUInt8, 1.0f / 510, 0)));
+    CHECK(writer.configure(specOf(PixelLayout::kPlanar, TensorElement::kUInt8, 1.0f / 255, 0)));
     std::vector<uint8_t> tensor(12, 0);
     writer.write(kPicture, kStride, tensor.data());
-    const int expected[] = {0, 204, 255, 2, 255, 255, 0, 4, 102, 255, 0, 6};
+    const int expected[] = {0, 102, 255, 1, 255, 153, 0, 2, 51, 204, 0, 3};
     for (int i = 0; i < 12; ++i) {
         CHECK(tensor[i] == expected[i]);
     }
@@ -126,6 +126,18 @@ TEST(integer_input_without_a_scale_is_refused) {
     InputWriter writer;
     CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kInt8, 0.0f, -128)));
     CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, -0.5f, 0)));
+}
+
+TEST(integer_input_that_is_not_zero_to_one_is_refused) {
+    InputWriter writer;
+    // Raw pixels, 0 to 255: the model scales them itself and would be given 0 or 1.
+    CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f, 0)));
+    // -1 to 1, as older quantized detectors take it.
+    CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f / 128, 128)));
+    // Only up to 0.5: the brighter half of the colours could not be stored.
+    CHECK(!writer.configure(specOf(PixelLayout::kPlanar, TensorElement::kUInt8, 1.0f / 510, 0)));
+    // A step off at the top end is still 0 to 1.
+    CHECK(writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kInt8, 1.0f / 256, -128)));
 }
 
 TEST(quantized_output_is_turned_back_into_real_values) {
