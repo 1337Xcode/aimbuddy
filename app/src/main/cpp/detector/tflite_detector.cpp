@@ -88,9 +88,11 @@ std::vector<uint8_t> agreementPicture(int side) {
 }
 
 /**
- * A GPU delegate tuned for a model run on every frame: half precision allowed, lowest latency first,
- * and compiled for sustained speed. OpenCL only: the OpenGL backend is slower and its context belongs
- * to the thread that made it. Null when the phone has no usable delegate.
+ * A GPU delegate for a model run on every frame: half precision allowed and lowest latency first.
+ * Balanced, not sustained speed: its programs are compiled afresh at every start, a stop waits for
+ * that, and balanced compiles nearly as fast as a single answer while running nearly as fast as
+ * sustained speed. OpenCL only: the OpenGL backend is slower and its context belongs to the thread
+ * that made it. Null when the phone has no usable delegate.
  */
 TfLiteDelegate* createGpuDelegate() {
     const LiteRtGpuApi* gpu = liteRtGpu();
@@ -99,7 +101,7 @@ TfLiteDelegate* createGpuDelegate() {
     }
     TfLiteGpuDelegateOptionsV2 options = gpu->optionsDefault();
     options.is_precision_loss_allowed = 1;
-    options.inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_SUSTAINED_SPEED;
+    options.inference_preference = TFLITE_GPU_INFERENCE_PREFERENCE_BALANCED;
     options.inference_priority1 = TFLITE_GPU_INFERENCE_PRIORITY_MIN_LATENCY;
     options.inference_priority2 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO;
     options.inference_priority3 = TFLITE_GPU_INFERENCE_PRIORITY_AUTO;

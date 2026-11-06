@@ -17,7 +17,8 @@ namespace aimbuddy {
  * integers) and how its answer is stored, and the detector writes and reads exactly that. On the CPU
  * LiteRT runs the model through XNNPACK; the GPU delegate (OpenCL, half precision) is timed against
  * it on the inference thread and kept only when it is clearly faster and gives the CPU's answer, as
- * for NCNN models. Nothing is allocated per frame.
+ * for NCNN models. The picture and the answer pass through buffers made at load; the one call that
+ * may allocate per frame is ncnn's resize, which the NCNN path makes too.
  */
 class TfliteDetector final : public Detector {
 public:
