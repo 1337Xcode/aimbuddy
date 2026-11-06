@@ -6,6 +6,12 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+### Added
+- TFLite models. A `.tflite` export of a YOLO detector can be imported under Models, Import, as one file, beside the NCNN `.param` and `.bin` pair. It runs through LiteRT 1.4.2: on the CPU through XNNPACK, or through LiteRT's GPU delegate (OpenCL, half precision) when that is more than 20% faster on the phone and gives the CPU's answer to a test picture, the rule the Vulkan path already follows. The app reads from the model whether it takes its picture pixel by pixel (Ultralytics before 8.4.83) or as colour planes (8.4.83 and later), and whether its tensors hold floats or 8-bit integers. On the emulator, with a photo of two people on screen, two YOLO26n exports from Ultralytics' own Android releases, one of each layout, found both people, with scores within 0.04 of Ultralytics' own LiteRT inference on the frame the app read. `docs/Training.md` says how to export a model that keeps up with a game.
+
+### Changed
+- The APK is 2.9 MB larger (10.6 MB), which is LiteRT's runtime and GPU delegate. The app opens them only when a `.tflite` model is loaded, so with an NCNN model they are never loaded and detection runs as before.
+
 ## [0.3.5-beta.3] - 2026-11-05
 
 AimBuddy General 2 in the model store, targets followed more closely through turns, cover and missed frames, touch access through Shizuku 13.6.0 on Tecno, Infinix and itel phones, and fixes for screen stretching apps.
