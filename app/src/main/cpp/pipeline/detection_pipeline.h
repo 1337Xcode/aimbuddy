@@ -74,6 +74,9 @@ public:
     bool loadModel(const ModelFiles& files, const ModelProfile& profile);
     bool isModelLoaded() const { return detector_ != nullptr; }
 
+    /// Releases the loaded model, as a load that failed does. Must not be called while running.
+    void unloadModel() { detector_.reset(); }
+
     /**
      * Chooses what finds the targets: the loaded model (the default) or a colour, which needs no model.
      * Must not be called while running; the choice is taken when the pipeline starts.

@@ -354,6 +354,9 @@ Java_com_aimbuddy_NativeBridge_loadModelFiles(JNIEnv* env, jclass /* clazz */, j
     }
     aimbuddy::ModelFiles files;
     if (!toModelFiles(env, format, modelPath, weightsPath, &files)) {
+        // A load that fails leaves no model, whatever was loaded before.
+        g_pipeline.unloadModel();
+        g_modelLoaded = false;
         return JNI_FALSE;
     }
 
