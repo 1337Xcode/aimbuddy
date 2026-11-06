@@ -76,7 +76,7 @@ expect "the version code of ${DEBUG_FILE}" "$(badge "${DEBUG_APK}" versionCode)"
 # The app carries no model: a model comes from the store or from the player's own files.
 # (A `.bin` outside `assets/` can be a library's own file, so only `assets/` is looked at.)
 for apk in "${APP_APK}" "${DEBUG_APK}"; do
-  if unzip -Z1 "${apk}" | grep -E '\.param$|^assets/.*\.bin$'; then
+  if unzip -Z1 "${apk}" | grep -E '\.param$|\.tflite$|^assets/.*\.bin$'; then
     fail "$(basename "${apk}") carries a detection model"
   fi
 done
