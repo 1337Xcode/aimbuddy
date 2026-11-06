@@ -23,4 +23,11 @@ sealed class ModelFiles {
         override val modelPath: String get() = paramPath
         override val weightsPath: String get() = binPath
     }
+
+    /** A TFLite (LiteRT) export: one `.tflite` file holding the network and its weights. */
+    data class Tflite(val path: String) : ModelFiles() {
+        override val formatCode: Int get() = 1
+        override val modelPath: String get() = path
+        override val weightsPath: String? get() = null
+    }
 }

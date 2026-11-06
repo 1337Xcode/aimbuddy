@@ -114,6 +114,7 @@
     <string name="models_error_space">手机存储空间不足。</string>
     <string name="models_store_saved">没有网络连接。下方是之前保存的列表。</string>
     <string name="models_import_unreadable">AimBuddy 无法把这对文件作为检测模型读取。</string>
+    <string name="models_import_unreadable_tflite">AimBuddy 无法把这个 .tflite 文件作为检测模型读取。</string>
     <string name="models_delete_title">删除此模型？</string>
     <string name="models_delete_message">将从此手机移除“%1$s”。</string>
     <string name="models_next_start">下次点按“开始”时生效。</string>
@@ -124,7 +125,7 @@
     <string name="models_guide_download_title">下载一个</string>
     <string name="models_guide_download_text">点按下方 AimBuddy General 旁的“获取”。下载很小。</string>
     <string name="models_guide_import_title">或导入自己的模型</string>
-    <string name="models_guide_import_text">点按顶部的文件图标，再选择 .param 和 .bin 文件。</string>
+    <string name="models_guide_import_text">点按顶部的文件图标，再选择 .tflite 文件，或 .param 和 .bin 文件。</string>
     <string name="models_guide_footer">模型负责在游戏画面中找到人物。没有模型，辅助无法启动。</string>
     <string name="models_needed">请先获取模型。AimBuddy General 是“商店”标签页中的一个小型下载。</string>
     <string name="models_ready_title">准备就绪</string>

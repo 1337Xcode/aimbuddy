@@ -56,8 +56,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** An imported pair of files that the detector could not read as a model. */
-private class UnreadableModelException : IllegalStateException("The detector cannot read that pair of files as a model")
+/** Imported files that the detector could not read as a model. */
+private class UnreadableModelException : IllegalStateException("The detector cannot read those files as a model")
 
 /** A short message for the player, shown once. */
 data class UiMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())
@@ -524,27 +524,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Remembers the `.param` file the player picked, until the matching `.bin` file arrives. */
-    fun onParamPicked(uri: Uri) {
+    /**
+     * Takes the first file the player picked to import. A `.tflite` model is one file and is imported at once; a
+     * `.param` file is remembered until the matching `.bin` file arrives. Returns true when the `.bin` is still to be picked.
+     */
+    fun onModelFilePicked(uri: Uri): Boolean {
+        val fileName = displayName(uri)
+        if (fileName.endsWith(TFLITE_SUFFIX, ignoreCase = true)) {
+            val name = fileName.dropLast(TFLITE_SUFFIX.length).ifBlank { "model" }
+            importModel(name, listOf(uri), listOf("tflite"), R.string.models_import_unreadable_tflite) { files ->
+                ModelFiles.Tflite(files[0].absolutePath)
+            }
+            return false
+        }
         pendingParam = uri
-        pendingName = displayName(uri).substringBeforeLast('.', "model")
+        pendingName = fileName.substringBeforeLast('.', "model")
+        return true
     }
 
-    /** Copies the picked `.param` and `.bin` into the app's storage and makes the pair the model in use. */
+    /** Imports the picked `.param` with this matching `.bin`. */
     fun onBinPicked(binUri: Uri) {
         val paramUri = pendingParam ?: return
         pendingParam = null
-        val name = pendingName
+        importModel(pendingName, listOf(paramUri, binUri), listOf("param", "bin"), R.string.models_import_unreadable) { files ->
+            ModelFiles.Ncnn(files[0].absolutePath, files[1].absolutePath)
+        }
+    }
+
+    /**
+     * Copies the picked files into a folder of the model's own, as `<id>.<extension>` in the order given, and makes
+     * them the model in use if the detector can load them; [unreadable] is the message when it cannot.
+     */
+    private fun importModel(
+        name: String,
+        sources: List<Uri>,
+        extensions: List<String>,
+        @StringRes unreadable: Int,
+        describe: (List<File>) -> ModelFiles,
+    ) {
         work.launch {
             val installed = withContext(Dispatchers.IO) {
                 val id = catalog.sanitizeModelId("local-$name-${System.currentTimeMillis()}")
                 val dir = File(context.filesDir, "models/$id")
-                val paramFile = File(dir, "$id.param")
-                val binFile = File(dir, "$id.bin")
-                val files = ModelFiles.Ncnn(paramFile.absolutePath, binFile.absolutePath)
+                val copies = extensions.map { File(dir, "$id.$it") }
+                val files = describe(copies)
                 runCatching {
-                    check(copy(paramUri, paramFile) && copy(binUri, binFile)) { "The files could not be copied" }
-                    // A pair the detector cannot read would become the model in use and fail at the next Start.
+                    check(sources.zip(copies).all { (from, to) -> copy(from, to) }) { "The files could not be copied" }
+                    // Files the detector cannot read would become the model in use and fail at the next Start.
                     if (!NativeBridge.canReadModel(files)) {
                         throw UnreadableModelException()
                     }
@@ -554,7 +580,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         description = "",
                         source = ModelSource.LOCAL,
                         files = files,
-                        totalSizeBytes = paramFile.length() + binFile.length(),
+                        totalSizeBytes = copies.sumOf { it.length() },
                     )
                 }.onFailure { dir.deleteRecursively() }
             }
@@ -566,7 +592,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onFailure {
                 Log.w(TAG, "Import failed: ${it.message}")
-                _messages.tryEmit(UiMessage(if (it is UnreadableModelException) R.string.models_import_unreadable else R.string.models_import_failed))
+                _messages.tryEmit(UiMessage(if (it is UnreadableModelException) unreadable else R.string.models_import_failed))
             }
             refreshModels()
         }
@@ -633,5 +659,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val SETTINGS_FILE = "settings.cfg"
         const val SAVE_DELAY_MS = 400L
         const val PROGRESS_INTERVAL_MS = 250L
+        const val TFLITE_SUFFIX = ".tflite"
     }
 }

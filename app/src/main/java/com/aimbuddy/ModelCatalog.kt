@@ -57,6 +57,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
         private const val PREFS_NAME = "aimbuddy_prefs"
         private const val KEY_INSTALLED_MODELS_JSON = "installed_models_json"
         private const val KEY_ACTIVE_MODEL_ID = "active_model_id"
+        private const val KEY_TFLITE_PATH = "tflitePath"
     }
 
     /**
@@ -190,18 +191,26 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
 
     /** The files of one saved model, or null when the entry names none. */
     private fun readFiles(obj: JSONObject): ModelFiles? {
+        val tflitePath = obj.optString(KEY_TFLITE_PATH)
+        if (tflitePath.isNotBlank()) {
+            return ModelFiles.Tflite(tflitePath)
+        }
         val paramPath = obj.optString("paramPath")
         val binPath = obj.optString("binPath")
         return if (paramPath.isBlank() || binPath.isBlank()) null else ModelFiles.Ncnn(paramPath, binPath)
     }
 
-    /** Saves a model's files under the keys [readFiles] reads them from. */
+    /**
+     * Saves a model's files under the keys [readFiles] reads them from. A TFLite model has a key of its own and no
+     * `.param` path, so a build from before TFLite leaves it off its list instead of trying to load it as NCNN.
+     */
     private fun writeFiles(obj: JSONObject, files: ModelFiles) {
         when (files) {
             is ModelFiles.Ncnn -> {
                 obj.put("paramPath", files.paramPath)
                 obj.put("binPath", files.binPath)
             }
+            is ModelFiles.Tflite -> obj.put(KEY_TFLITE_PATH, files.path)
         }
     }
 

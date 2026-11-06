@@ -143,10 +143,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    // Importing a model: first the .param file, then the matching .bin file.
-    private val importParamLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            viewModel.onParamPicked(uri)
+    // Importing a model: a .tflite file on its own, or the .param file and then the matching .bin file.
+    private val importModelLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && viewModel.onModelFilePicked(uri)) {
             viewModel.post(UiMessage(R.string.models_import_hint))
             importBinLauncher.launch(arrayOf("application/octet-stream", "*/*"))
         }
@@ -517,7 +516,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchImport() {
         try {
-            importParamLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+            importModelLauncher.launch(arrayOf("application/octet-stream", "*/*"))
         } catch (e: ActivityNotFoundException) {
             viewModel.post(UiMessage(R.string.models_import_failed))
         }

@@ -1,6 +1,7 @@
 package com.aimbuddy
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -76,5 +77,30 @@ class ModelCatalogTest {
 
         assertEquals(ModelFiles.Ncnn(param.path, bin.path), listed.files)
         assertEquals(2, listed.version)
+    }
+
+    @Test
+    fun aTfliteModelIsSavedSoThatEarlierVersionsSkipIt() {
+        val model = File(folder.root, "mine.tflite").also { it.writeText("TFL3") }
+        val preferences = InMemoryPreferences()
+        val catalog = ModelCatalog(File(folder.root, "models"), preferences)
+        catalog.addOrUpdateModel(
+            InstalledModel(
+                id = "mine",
+                title = "Mine",
+                description = "",
+                source = ModelSource.LOCAL,
+                files = ModelFiles.Tflite(model.path),
+                totalSizeBytes = 4,
+            )
+        )
+
+        val listed = ModelCatalog(File(folder.root, "models"), preferences).getInstalledModels().single()
+        assertEquals(ModelFiles.Tflite(model.path), listed.files)
+        assertEquals(listOf(model.path), listed.files.paths)
+        // An earlier version reads only paramPath and binPath, and leaves an entry without them off its list.
+        val saved = org.json.JSONArray(preferences.getString("installed_models_json", "[]")).getJSONObject(0)
+        assertFalse(saved.has("paramPath"))
+        assertFalse(saved.has("binPath"))
     }
 }

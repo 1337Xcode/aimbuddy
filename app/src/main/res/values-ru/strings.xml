@@ -114,6 +114,7 @@
     <string name="models_error_space">На телефоне не хватает места.</string>
     <string name="models_store_saved">Нет соединения. Ниже список, сохранённый ранее.</string>
     <string name="models_import_unreadable">AimBuddy не может прочитать эти файлы как модель обнаружения.</string>
+    <string name="models_import_unreadable_tflite">AimBuddy не может прочитать этот файл .tflite как модель обнаружения.</string>
     <string name="models_delete_title">Удалить модель?</string>
     <string name="models_delete_message">«%1$s» будет удалена с этого телефона.</string>
     <string name="models_next_start">Будет использована при следующем нажатии «Старт».</string>
@@ -124,7 +125,7 @@
     <string name="models_guide_download_title">Скачайте готовую</string>
     <string name="models_guide_download_text">Нажмите «Скачать» у AimBuddy General ниже. Загрузка небольшая.</string>
     <string name="models_guide_import_title">Или импортируйте свою</string>
-    <string name="models_guide_import_text">Нажмите значок файла вверху, затем выберите файлы .param и .bin.</string>
+    <string name="models_guide_import_text">Нажмите значок файла вверху, затем выберите файл .tflite или файлы .param и .bin.</string>
     <string name="models_guide_footer">Модель находит людей на картинке игры. Без неё помощь не запустится.</string>
     <string name="models_needed">Сначала получите модель. AimBuddy General — небольшая загрузка на вкладке «Магазин».</string>
     <string name="models_ready_title">Всё готово</string>
