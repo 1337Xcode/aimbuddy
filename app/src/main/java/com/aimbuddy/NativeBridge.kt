@@ -73,26 +73,30 @@ object NativeBridge {
     @JvmStatic
     external fun setDetectionRateLimit(perSecond: Float)
 
+    /** Loads the detection model, with what its description says about it (see [ModelProfileSpec]). */
+    fun loadModel(files: ModelFiles, spec: ModelProfileSpec): Boolean =
+        loadModelFiles(files.formatCode, files.modelPath, files.weightsPath, spec.roles, spec.endToEnd, spec.inputSize)
+
     /**
-     * Loads the detection model from its two files. `roles` is a comma separated list such as
-     * "body,head" saying what each class of the model means.
+     * Whether a model's files can be used as a detection model: it is loaded and run once on a blank picture.
+     * Slow enough (a moment on a phone) to be called off the main thread. For a model the player imports, so that one
+     * the detector cannot read is refused then and not at the next Start.
      */
+    fun canReadModel(files: ModelFiles): Boolean = canReadModelFiles(files.formatCode, files.modelPath, files.weightsPath)
+
+    /** `roles` is a comma separated list such as "body,head" saying what each class of the model means. */
     @JvmStatic
-    external fun loadModel(
-        paramPath: String,
-        binPath: String,
+    private external fun loadModelFiles(
+        format: Int,
+        modelPath: String,
+        weightsPath: String?,
         roles: String?,
         endToEnd: Boolean,
         inputSize: Int,
     ): Boolean
 
-    /**
-     * Whether a pair of files can be used as a detection model: it is loaded and run once on a blank picture.
-     * Slow enough (a moment on a phone) to be called off the main thread. For a pair the player imports, so that one the
-     * detector cannot read is refused then and not at the next Start.
-     */
     @JvmStatic
-    external fun canReadModel(paramPath: String, binPath: String): Boolean
+    private external fun canReadModelFiles(format: Int, modelPath: String, weightsPath: String?): Boolean
 
     /** True when the player has chosen to find targets by a colour, which needs no model. */
     @JvmStatic

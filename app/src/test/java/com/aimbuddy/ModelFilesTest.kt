@@ -27,8 +27,7 @@ class ModelFilesTest {
         title = "Model $id",
         description = "",
         source = ModelSource.STORE,
-        paramPath = param.path,
-        binPath = bin.path,
+        files = ModelFiles.Ncnn(param.path, bin.path),
         totalSizeBytes = 0,
         version = 1,
     )

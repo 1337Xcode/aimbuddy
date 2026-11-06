@@ -171,14 +171,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
             Log.e(TAG, "No model is installed")
             return false
         }
-        val spec = ModelProfileSpec.readFor(model.paramPath)
-        return NativeBridge.loadModel(
-            model.paramPath,
-            model.binPath,
-            spec.roles,
-            spec.endToEnd,
-            spec.inputSize,
-        )
+        return NativeBridge.loadModel(model.files, ModelProfileSpec.readFor(model.files.modelPath))
     }
 
     private fun beginCapture(resultCode: Int, resultData: Intent) {

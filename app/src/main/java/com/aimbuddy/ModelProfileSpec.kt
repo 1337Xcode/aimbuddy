@@ -40,15 +40,15 @@ data class ModelProfileSpec(
         val UNKNOWN = ModelProfileSpec(roles = null, endToEnd = false, inputSize = 0)
 
         /**
-         * Reads the description for the model whose `.param` file is [paramPath].
-         * `<name>.json` next to the `.param` file wins over `model.json` in the same folder.
+         * Reads the description for the model whose main file ([ModelFiles.modelPath]) is [modelPath].
+         * `<name>.json` next to that file wins over `model.json` in the same folder.
          */
-        fun readFor(paramPath: String?): ModelProfileSpec {
-            if (paramPath.isNullOrBlank()) return UNKNOWN
-            val param = File(paramPath)
+        fun readFor(modelPath: String?): ModelProfileSpec {
+            if (modelPath.isNullOrBlank()) return UNKNOWN
+            val model = File(modelPath)
             val candidates = listOf(
-                File(param.parentFile, param.nameWithoutExtension + ".json"),
-                File(param.parentFile, "model.json")
+                File(model.parentFile, model.nameWithoutExtension + ".json"),
+                File(model.parentFile, "model.json")
             )
             val file = candidates.firstOrNull { it.isFile } ?: return UNKNOWN
             return try {

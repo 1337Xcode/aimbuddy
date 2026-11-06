@@ -5,6 +5,7 @@
 #include <atomic>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -18,7 +19,7 @@
 #include "../core/global_motion.h"
 #include "../core/model_profile.h"
 #include "../core/tracker.h"
-#include "../detector/yolo_detector.h"
+#include "../detector/detector.h"
 
 namespace aimbuddy {
 
@@ -66,9 +67,12 @@ public:
     /// Told, on the pipeline thread, what the colour the player tapped is (or that there was none).
     using ColourSink = std::function<void(bool found, const ColourRange& range)>;
 
-    /// Loads the model. Must not be called while running. Returns false if the model is unusable.
-    bool loadModel(const std::string& paramPath, const std::string& binPath, const ModelProfile& profile);
-    bool isModelLoaded() const { return detector_.isLoaded(); }
+    /**
+     * Loads the model, in place of the one loaded before, which is released first. Must not be called
+     * while running. Returns false, with no model loaded, if the model is unusable.
+     */
+    bool loadModel(const ModelFiles& files, const ModelProfile& profile);
+    bool isModelLoaded() const { return detector_ != nullptr; }
 
     /**
      * Chooses what finds the targets: the loaded model (the default) or a colour, which needs no model.
@@ -78,7 +82,7 @@ public:
     bool detectsByColour() const { return colourMode_.load(std::memory_order_acquire); }
 
     /// True when there is something to detect with: the model is loaded, or the colour detector is chosen.
-    bool canStart() const { return detectsByColour() || detector_.isLoaded(); }
+    bool canStart() const { return detectsByColour() || isModelLoaded(); }
 
     /// What the colour detector looks for. Thread safe.
     void setColourTarget(const ColourTarget& target);
@@ -162,7 +166,7 @@ private:
 
     RoiCapture capture_;
     FrameThinner thinner_;
-    YoloDetector detector_;
+    std::unique_ptr<Detector> detector_;  ///< The loaded model; null when there is none. Changed only while stopped.
     ModelProfile profile_;                ///< What the detections mean; the model's, or one body class for a colour. Fixed while running.
     ColourBlobFinder colourFinder_;       ///< Pipeline thread only.
     std::atomic<bool> colourMode_{false};

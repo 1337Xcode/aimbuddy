@@ -1,4 +1,4 @@
-#include "yolo_detector.h"
+#include "ncnn_detector.h"
 
 #include <ncnn/gpu.h>
 
@@ -24,10 +24,6 @@ constexpr int kGpuTypeCpu = 3;
 
 /// Grey level of the synthetic image used to probe and time the network.
 constexpr float kProbeGrey = 0.45f;
-
-float elapsedMs(std::chrono::steady_clock::time_point since) {
-    return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - since).count();
-}
 
 /// Options that suit both backends: low memory, half precision where the hardware allows it.
 void applyCommonOptions(ncnn::Option& opt) {
@@ -57,7 +53,7 @@ const float* tensorData(const ncnn::Mat& tensor) {
 
 }  // namespace
 
-bool YoloDetector::loadNet(ncnn::Net& net, const char* paramPath, const char* binPath) const {
+bool NcnnDetector::loadNet(ncnn::Net& net, const char* paramPath, const char* binPath) const {
     if (paramPath == nullptr || binPath == nullptr || paramPath[0] == '\0' || binPath[0] == '\0') {
         LOGE("There are no model files to read");
         return false;
@@ -70,15 +66,15 @@ bool YoloDetector::loadNet(ncnn::Net& net, const char* paramPath, const char* bi
     return true;
 }
 
-bool YoloDetector::runOnce(ncnn::Net& net, const ncnn::Mat& input, ncnn::Mat& output) const {
+bool NcnnDetector::runOnce(ncnn::Net& net, const ncnn::Mat& input, ncnn::Mat& output) const {
     ncnn::Extractor extractor = net.create_extractor();
     return extractor.input(inputIndex_, input) == 0 && extractor.extract(outputIndex_, output) == 0;
 }
 
-bool YoloDetector::probeOutput(ncnn::Net& net) {
+bool NcnnDetector::probeOutput(ncnn::Net& net, const ModelProfile& declared) {
     std::vector<int> sizes;
-    if (profile_.inputSize > 0) {
-        sizes.push_back(profile_.inputSize);
+    if (declared.inputSize > 0) {
+        sizes.push_back(declared.inputSize);
     } else {
         sizes.assign(std::begin(kProbeInputSizes), std::end(kProbeInputSizes));
     }
@@ -91,29 +87,18 @@ bool YoloDetector::probeOutput(ncnn::Net& net) {
             output.elempack != 1 || output.elemsize != sizeof(float)) {
             continue;
         }
-        DecodeSpec spec;
-        if (!inferDecodeSpec(tensorData(output), output.h, output.w, profile_.endToEndOutput, &spec)) {
-            continue;
+        if (learnOutput(tensorData(output), output.h, output.w, size, declared)) {
+            return true;
         }
-        const int anchors = spec.layout == OutputLayout::kChannelsFirst ? output.w : output.h;
-        if (spec.layout != OutputLayout::kEndToEnd && inferInputSize(anchors) != size) {
-            LOGW("Model output has %d anchors, unusual for a %d px input", anchors, size);
-        }
-        spec_ = spec;
-        inputSize_ = size;
-        LOGI("Model reads %dx%d input, output %dx%d, %d classes, %s coordinates", size, size, output.h,
-             output.w, spec.classCount, spec.normalized ? "normalised" : "pixel");
-        return true;
     }
     LOGE("The model did not produce a readable detection tensor");
     return false;
 }
 
-bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelProfile& profile) {
+bool NcnnDetector::load(const ModelFiles& files, const ModelProfile& profile) {
     unload();
-    profile_ = profile;
-    paramPath_ = paramPath != nullptr ? paramPath : "";
-    binPath_ = binPath != nullptr ? binPath : "";
+    paramPath_ = files.modelPath;
+    binPath_ = files.weightsPath;
 
     applyCommonOptions(cpuNet_.opt);
     cpuNet_.opt.use_vulkan_compute = false;
@@ -126,16 +111,10 @@ bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelP
     inputIndex_ = cpuNet_.input_indexes()[0];
     outputIndex_ = cpuNet_.output_indexes()[0];
 
-    if (!probeOutput(cpuNet_)) {
+    if (!probeOutput(cpuNet_, profile)) {
         unload();
         return false;
     }
-    if (profile_.declaredClassCount != 0 && spec_.layout != OutputLayout::kEndToEnd &&
-        profile_.declaredClassCount != spec_.classCount) {
-        LOGW("Model has %d classes but its description lists %d", spec_.classCount, profile_.declaredClassCount);
-    }
-    // No description saved with the model: the roles are guessed from how many classes it has.
-    profile_ = settleProfile(profile_, spec_);
 
     active_ = &cpuNet_;
     backend_ = Backend::kCpu;
@@ -143,7 +122,7 @@ bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelP
     return true;
 }
 
-void YoloDetector::unload() {
+void NcnnDetector::unload() {
     cpuNet_.clear();
     gpuNet_.clear();
     inputPool_.clear();
@@ -153,13 +132,13 @@ void YoloDetector::unload() {
     backend_ = Backend::kCpu;
 }
 
-float YoloDetector::medianLatencyMs(ncnn::Net& net, const std::function<bool()>& shouldStop) {
+float NcnnDetector::medianLatencyMs(ncnn::Net& net, const std::function<bool()>& shouldStop) {
     const ncnn::Mat probe = makeProbeImage(inputSize_);
     ncnn::Mat output;
     return medianRunMs([&] { return runOnce(net, probe, output); }, shouldStop);
 }
 
-bool YoloDetector::useBackend(Backend backend) {
+bool NcnnDetector::useBackend(Backend backend) {
     if (!loaded_) {
         return false;
     }
@@ -175,7 +154,7 @@ bool YoloDetector::useBackend(Backend backend) {
     return true;
 }
 
-void YoloDetector::chooseBackend(const std::function<bool()>& shouldStop) {
+void NcnnDetector::chooseBackend(const std::function<bool()>& shouldStop) {
     if (!loaded_) {
         return;
     }
@@ -224,7 +203,7 @@ void YoloDetector::chooseBackend(const std::function<bool()>& shouldStop) {
          cpuNet_.opt.num_threads, gpuMs);
 }
 
-bool YoloDetector::gpuAnswersLikeCpu() {
+bool NcnnDetector::gpuAnswersLikeCpu() {
     ncnn::Mat input(inputSize_, inputSize_, 3);
     for (int channel = 0; channel < 3; ++channel) {
         float* plane = input.channel(channel);
@@ -253,7 +232,7 @@ bool YoloDetector::gpuAnswersLikeCpu() {
     return agree;
 }
 
-bool YoloDetector::detect(const RoiFrame& frame, DetectionBatch& batch) {
+bool NcnnDetector::detect(const RoiFrame& frame, DetectionBatch& batch) {
     if (!loaded_ || active_ == nullptr) {
         return false;
     }
@@ -276,12 +255,7 @@ bool YoloDetector::detect(const RoiFrame& frame, DetectionBatch& batch) {
         return false;
     }
 
-    DecodeParams params;
-    params.minScore = minScore_.load(std::memory_order_relaxed);
-    params.modelSize = inputSize_;
-    decodeIntoBatch(tensorData(output), output.h, output.w, spec_, params, profile_, frame.roi, frame.geometry, &batch);
-    batch.captureNs = frame.captureTimeNs;
-    batch.inferenceMs = elapsedMs(start);
+    decodeOutput(tensorData(output), output.h, output.w, frame, start, batch);
     return true;
 }
 

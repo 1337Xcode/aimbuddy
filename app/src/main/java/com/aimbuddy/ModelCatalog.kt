@@ -20,13 +20,12 @@ data class InstalledModel(
     val title: String,
     val description: String,
     val source: ModelSource,
-    val paramPath: String,
-    val binPath: String,
+    val files: ModelFiles,
     val totalSizeBytes: Long,
     val version: Int = 0,
 ) {
     /** True when the model's files are there to be loaded. */
-    fun canUse(): Boolean = File(paramPath).exists() && File(binPath).exists()
+    fun canUse(): Boolean = files.paths.all { File(it).exists() }
 }
 
 /**
@@ -150,14 +149,12 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
     /** Deletes a model's files, and its folder when the model has one of its own. */
     private fun deleteFiles(model: InstalledModel) {
         try {
-            val file = File(model.paramPath)
-            val folder = file.parentFile
+            val folder = File(model.files.modelPath).parentFile
             if (folder != null && folder.name == model.id && folder.parentFile?.name == "models") {
                 folder.deleteRecursively()
             } else {
-                file.delete()
+                model.files.paths.forEach { File(it).delete() }
             }
-            File(model.binPath).delete()
         } catch (_: Exception) {
             // The files are only leftovers once the model is off the list.
         }
@@ -174,26 +171,38 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
         val out = mutableListOf<InstalledModel>()
         for (i in 0 until arr.length()) {
             val obj = arr.optJSONObject(i) ?: continue
-            val paramPath = obj.optString("paramPath")
-            val binPath = obj.optString("binPath")
             // An earlier build kept the model it shipped with on this list, with no files of its own.
-            if (paramPath.isBlank() || binPath.isBlank()) {
-                continue
-            }
+            val files = readFiles(obj) ?: continue
             out.add(
                 InstalledModel(
                     id = obj.optString("id"),
                     title = obj.optString("title"),
                     description = obj.optString("description"),
                     source = if (obj.optString("source") == ModelSource.STORE.name) ModelSource.STORE else ModelSource.LOCAL,
-                    paramPath = paramPath,
-                    binPath = binPath,
+                    files = files,
                     totalSizeBytes = obj.optLong("totalSizeBytes", 0L),
                     version = obj.optInt("version", 0),
                 )
             )
         }
         return out
+    }
+
+    /** The files of one saved model, or null when the entry names none. */
+    private fun readFiles(obj: JSONObject): ModelFiles? {
+        val paramPath = obj.optString("paramPath")
+        val binPath = obj.optString("binPath")
+        return if (paramPath.isBlank() || binPath.isBlank()) null else ModelFiles.Ncnn(paramPath, binPath)
+    }
+
+    /** Saves a model's files under the keys [readFiles] reads them from. */
+    private fun writeFiles(obj: JSONObject, files: ModelFiles) {
+        when (files) {
+            is ModelFiles.Ncnn -> {
+                obj.put("paramPath", files.paramPath)
+                obj.put("binPath", files.binPath)
+            }
+        }
     }
 
     private fun saveInstalledModels(models: List<InstalledModel>) {
@@ -204,8 +213,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             obj.put("title", model.title)
             obj.put("description", model.description)
             obj.put("source", model.source.name)
-            obj.put("paramPath", model.paramPath)
-            obj.put("binPath", model.binPath)
+            writeFiles(obj, model.files)
             obj.put("totalSizeBytes", model.totalSizeBytes)
             obj.put("version", model.version)
             arr.put(obj)

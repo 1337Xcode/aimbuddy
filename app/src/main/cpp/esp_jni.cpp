@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <android/hardware_buffer.h>
 #include <android/hardware_buffer_jni.h>
+#include <ncnn/gpu.h>
 
 #include <algorithm>
 #include <atomic>
@@ -78,6 +79,17 @@ std::string toStdString(JNIEnv* env, jstring text) {
     std::string copy(chars);
     env->ReleaseStringUTFChars(text, chars);
     return copy;
+}
+
+/// Reads the format number and the paths Kotlin passed for a model. False, with the reason logged, for a format this build does not know.
+bool toModelFiles(JNIEnv* env, jint format, jstring modelPath, jstring weightsPath, aimbuddy::ModelFiles* files) {
+    if (!aimbuddy::modelFormatFromCode(format, &files->format)) {
+        LOGE("Model format %d is not one this build can read", format);
+        return false;
+    }
+    files->modelPath = toStdString(env, modelPath);
+    files->weightsPath = toStdString(env, weightsPath);
+    return true;
 }
 
 /// Turns the player's settings into what the aim loop works from.
@@ -324,19 +336,24 @@ JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_resetSettings(JNIEnv* /* e
 
 /**
  * @brief Loads the detection model and tells the detector what its classes mean
- * @param paramPath Path of the .param file
- * @param binPath Path of the .bin file
+ * @param format The model's format, as aimbuddy::ModelFormat numbers it
+ * @param modelPath Path of the file the format is read from: the .param file of an NCNN model
+ * @param weightsPath Path of the NCNN .bin file
  * @param roles Comma separated roles in class order, such as "body,head"; null or empty when unknown
  * @param endToEnd True if the model already removes duplicate detections
  * @param inputSize Width and height of the network input, or 0 to work it out
  * @return false if the model could not be used
  */
 JNIEXPORT jboolean JNICALL
-Java_com_aimbuddy_NativeBridge_loadModel(JNIEnv* env, jclass /* clazz */, jstring paramPath, jstring binPath,
-                                         jstring roles, jboolean endToEnd, jint inputSize) {
+Java_com_aimbuddy_NativeBridge_loadModelFiles(JNIEnv* env, jclass /* clazz */, jint format, jstring modelPath,
+                                              jstring weightsPath, jstring roles, jboolean endToEnd, jint inputSize) {
     std::lock_guard<std::mutex> lock(g_loadMutex);
     if (g_pipeline.isRunning()) {
         LOGE("Cannot load a model while running");
+        return JNI_FALSE;
+    }
+    aimbuddy::ModelFiles files;
+    if (!toModelFiles(env, format, modelPath, weightsPath, &files)) {
         return JNI_FALSE;
     }
 
@@ -347,7 +364,7 @@ Java_com_aimbuddy_NativeBridge_loadModel(JNIEnv* env, jclass /* clazz */, jstrin
     profile.inputSize = inputSize > 0 ? inputSize : 0;
     LOGI("Model profile: roles='%s' endToEnd=%d inputSize=%d", roleList.c_str(), endToEnd == JNI_TRUE, inputSize);
 
-    g_modelLoaded = g_pipeline.loadModel(toStdString(env, paramPath), toStdString(env, binPath), profile);
+    g_modelLoaded = g_pipeline.loadModel(files, profile);
     if (!g_modelLoaded) {
         LOGE("Failed to load the detection model");
     }
@@ -355,14 +372,18 @@ Java_com_aimbuddy_NativeBridge_loadModel(JNIEnv* env, jclass /* clazz */, jstrin
 }
 
 /**
- * @brief Whether a pair of files can be used as a detection model: loaded, and run once on a blank picture.
+ * @brief Whether a model's files can be used as a detection model: loaded, and run once on a blank picture.
  *
  * It uses a detector of its own, so it can run while the assist does; the one that finds targets is not touched.
  */
-JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_canReadModel(JNIEnv* env, jclass /* clazz */, jstring paramPath,
-                                                                         jstring binPath) {
-    aimbuddy::YoloDetector probe;
-    const bool readable = probe.load(toStdString(env, paramPath).c_str(), toStdString(env, binPath).c_str(), aimbuddy::ModelProfile());
+JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_canReadModelFiles(JNIEnv* env, jclass /* clazz */, jint format,
+                                                                              jstring modelPath, jstring weightsPath) {
+    aimbuddy::ModelFiles files;
+    if (!toModelFiles(env, format, modelPath, weightsPath, &files)) {
+        return JNI_FALSE;
+    }
+    const std::unique_ptr<aimbuddy::Detector> probe = aimbuddy::makeDetector(files.format);
+    const bool readable = probe != nullptr && probe->load(files, aimbuddy::ModelProfile());
     return readable ? JNI_TRUE : JNI_FALSE;
 }
 

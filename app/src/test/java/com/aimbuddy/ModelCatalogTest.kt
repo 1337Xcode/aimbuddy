@@ -23,8 +23,7 @@ class ModelCatalogTest {
             title = "Model $id",
             description = "",
             source = ModelSource.STORE,
-            paramPath = param.path,
-            binPath = bin.path,
+            files = ModelFiles.Ncnn(param.path, bin.path),
             totalSizeBytes = 8,
             version = 1,
         )
@@ -61,5 +60,21 @@ class ModelCatalogTest {
         assertEquals("Newer", listed.title)
         assertEquals(2, listed.version)
         assertTrue(catalog.getActiveModel()?.id == "general")
+    }
+
+    @Test
+    fun aListSavedByAnEarlierVersionLoadsTheSameModels() {
+        val param = File(folder.root, "general.param").also { it.writeText("param") }
+        val bin = File(folder.root, "general.bin").also { it.writeText("bin") }
+        val preferences = InMemoryPreferences()
+        val savedBefore = """[{"id":"general","title":"AimBuddy General","description":"","source":"STORE",""" +
+            """"paramPath":"${param.path.replace("\\", "\\\\")}","binPath":"${bin.path.replace("\\", "\\\\")}",""" +
+            """"totalSizeBytes":8,"version":2}]"""
+        preferences.edit().putString("installed_models_json", savedBefore).apply()
+
+        val listed = ModelCatalog(File(folder.root, "models"), preferences).getInstalledModels().single()
+
+        assertEquals(ModelFiles.Ncnn(param.path, bin.path), listed.files)
+        assertEquals(2, listed.version)
     }
 }

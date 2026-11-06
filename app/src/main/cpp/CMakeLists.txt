@@ -163,7 +163,8 @@ set(ESP_SOURCES
     core/output_agreement.cpp
     core/response_estimator.cpp
     detector/backend_timing.cpp
-    detector/yolo_detector.cpp
+    detector/detector.cpp
+    detector/ncnn_detector.cpp
     pipeline/aim_loop.cpp
     renderer/imgui_menu.cpp
     renderer/menu_widgets.cpp

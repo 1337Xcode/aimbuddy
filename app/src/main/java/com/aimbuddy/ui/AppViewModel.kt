@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.aimbuddy.BuildConfig
 import com.aimbuddy.InstalledModel
 import com.aimbuddy.ModelCatalog
+import com.aimbuddy.ModelFiles
 import com.aimbuddy.ModelSource
 import com.aimbuddy.ModelStoreRepository
 import com.aimbuddy.NativeBridge
@@ -497,8 +498,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         title = model.title,
                         description = model.description,
                         source = ModelSource.STORE,
-                        paramPath = files.param.absolutePath,
-                        binPath = files.bin.absolutePath,
+                        files = ModelFiles.Ncnn(files.param.absolutePath, files.bin.absolutePath),
                         totalSizeBytes = files.param.length() + files.bin.length(),
                         version = model.version,
                     )
@@ -541,10 +541,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val dir = File(context.filesDir, "models/$id")
                 val paramFile = File(dir, "$id.param")
                 val binFile = File(dir, "$id.bin")
+                val files = ModelFiles.Ncnn(paramFile.absolutePath, binFile.absolutePath)
                 runCatching {
                     check(copy(paramUri, paramFile) && copy(binUri, binFile)) { "The files could not be copied" }
                     // A pair the detector cannot read would become the model in use and fail at the next Start.
-                    if (!NativeBridge.canReadModel(paramFile.absolutePath, binFile.absolutePath)) {
+                    if (!NativeBridge.canReadModel(files)) {
                         throw UnreadableModelException()
                     }
                     InstalledModel(
@@ -552,8 +553,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         title = name,
                         description = "",
                         source = ModelSource.LOCAL,
-                        paramPath = paramFile.absolutePath,
-                        binPath = binFile.absolutePath,
+                        files = files,
                         totalSizeBytes = paramFile.length() + binFile.length(),
                     )
                 }.onFailure { dir.deleteRecursively() }
@@ -607,8 +607,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 title = "Earlier import",
                 description = "",
                 source = ModelSource.LOCAL,
-                paramPath = param,
-                binPath = bin,
+                files = ModelFiles.Ncnn(param, bin),
                 totalSizeBytes = File(param).length() + File(bin).length(),
             ),
             makeActive = false,

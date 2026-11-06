@@ -69,17 +69,21 @@ DetectionPipeline::DetectionPipeline() {
     capture_.setFrameObserver([this](const RoiFrame& frame) { measureCameraMotion(frame); });
 }
 
-bool DetectionPipeline::loadModel(const std::string& paramPath, const std::string& binPath, const ModelProfile& profile) {
+bool DetectionPipeline::loadModel(const ModelFiles& files, const ModelProfile& profile) {
     if (isRunning()) {
         LOGE("Cannot load a model while the pipeline is running");
         return false;
     }
-    if (!detector_.load(paramPath.c_str(), binPath.c_str(), profile)) {
+    // The old model goes first, so two are never held in memory at once.
+    detector_.reset();
+    std::unique_ptr<Detector> detector = makeDetector(files.format);
+    if (detector == nullptr || !detector->load(files, profile)) {
         return false;
     }
-    profile_ = detector_.profile();
+    detector_ = std::move(detector);
+    profile_ = detector_->profile();
     if (!detectsByColour()) {
-        capture_.setModelSize(detector_.inputSize());
+        capture_.setModelSize(detector_->inputSize());
     }
     return true;
 }
@@ -93,9 +97,9 @@ void DetectionPipeline::setColourDetection(bool on) {
     if (on) {
         profile_ = ModelProfile::defaultsFor(1);   // a patch of the colour is one enemy body
         capture_.setModelSize(kColourModelSize);
-    } else if (detector_.isLoaded()) {
-        profile_ = detector_.profile();
-        capture_.setModelSize(detector_.inputSize());
+    } else if (detector_ != nullptr) {
+        profile_ = detector_->profile();
+        capture_.setModelSize(detector_->inputSize());
     }
 }
 
@@ -144,7 +148,7 @@ void DetectionPipeline::applyConfidenceIfChanged(float& applied) {
     }
     const TrackerConfig config = TrackerConfig::forConfidence(requested);
     tracker_.setConfig(config);
-    detector_.setMinScore(config.lowScore);
+    detector_->setMinScore(config.lowScore);
     applied = requested;
 }
 
@@ -474,8 +478,8 @@ void DetectionPipeline::run() {
     if (detectsByColour()) {
         backend_.store("Colour", std::memory_order_relaxed);
     } else {
-        detector_.chooseBackend([this] { return !running_.load(std::memory_order_acquire); });
-        backend_.store(detector_.backendName(), std::memory_order_relaxed);
+        detector_->chooseBackend([this] { return !running_.load(std::memory_order_acquire); });
+        backend_.store(detector_->backendName(), std::memory_order_relaxed);
     }
 
     DetectionBatch batch;
@@ -504,9 +508,9 @@ void DetectionPipeline::run() {
 #ifdef AIMBUDDY_DEBUG_HOOKS
         const bool detected = syntheticMode_.load(std::memory_order_acquire)
                                   ? detectSynthetic(*frame, batch)
-                                  : (byColour ? detectByColour(*frame, batch) : detector_.detect(*frame, batch));
+                                  : (byColour ? detectByColour(*frame, batch) : detector_->detect(*frame, batch));
 #else
-        const bool detected = byColour ? detectByColour(*frame, batch) : detector_.detect(*frame, batch);
+        const bool detected = byColour ? detectByColour(*frame, batch) : detector_->detect(*frame, batch);
 #endif
         capture_.mailbox().endRead();  // the pixels are consumed; let the capture thread reuse the slot
         if (!detected) {
