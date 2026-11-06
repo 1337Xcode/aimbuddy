@@ -31,9 +31,10 @@ public:
     const char* backendName() const override { return active_ == &gpu_ ? "GPU (LiteRT)" : "CPU (LiteRT)"; }
 
 private:
-    /// One interpreter of the model: on the CPU, or with the GPU delegate, which it owns.
+    /// One interpreter of the model: on the CPU with the XNNPACK delegate, or with the GPU delegate. It owns its delegate.
     struct Engine {
         TfLiteInterpreter* interpreter = nullptr;
+        TfLiteDelegate* xnnpackDelegate = nullptr;
         TfLiteDelegate* gpuDelegate = nullptr;
         TfLiteTensor* input = nullptr;
         const TfLiteTensor* output = nullptr;

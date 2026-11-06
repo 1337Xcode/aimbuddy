@@ -109,6 +109,17 @@ TfLiteDelegate* createGpuDelegate() {
     return gpu->create(&options);
 }
 
+/**
+ * An XNNPACK delegate with one worker per fast core. LiteRT's C API runs a model on its own CPU
+ * kernels unless it is handed this delegate, and those took 1.3 to 2 times as long on the models
+ * measured. Null when XNNPACK cannot start on this processor.
+ */
+TfLiteDelegate* createXnnpackDelegate(const LiteRtApi& api) {
+    XnnpackOptions options = api.xnnpackOptionsDefault();
+    options.numThreads = fastCoreThreadCount();
+    return api.xnnpackCreate(&options);
+}
+
 }  // namespace
 
 bool TfliteDetector::load(const ModelFiles& files, const ModelProfile& profile) {
@@ -169,6 +180,13 @@ bool TfliteDetector::build(Engine& engine, bool onGpu) {
             return false;
         }
         api_->optionsAddDelegate(options, engine.gpuDelegate);
+    } else {
+        engine.xnnpackDelegate = createXnnpackDelegate(*api_);
+        if (engine.xnnpackDelegate == nullptr) {
+            LOGW("XNNPACK could not be started: the model runs on LiteRT's own CPU kernels, which are slower");
+        } else {
+            api_->optionsAddDelegate(options, engine.xnnpackDelegate);
+        }
     }
     engine.interpreter = api_->interpreterCreate(model_, options);
     api_->optionsDelete(options);   // the interpreter keeps what it needs of them
@@ -189,7 +207,10 @@ void TfliteDetector::release(Engine& engine) {
     if (engine.interpreter != nullptr) {
         api_->interpreterDelete(engine.interpreter);
     }
-    // The delegate must outlive the interpreter that runs on it.
+    // A delegate must outlive the interpreter that runs on it.
+    if (engine.xnnpackDelegate != nullptr) {
+        api_->xnnpackDelete(engine.xnnpackDelegate);
+    }
     if (engine.gpuDelegate != nullptr) {
         liteRtGpu()->destroy(engine.gpuDelegate);
     }
@@ -306,8 +327,8 @@ const float* TfliteDetector::outputValues(const Engine& engine) {
 }
 
 void TfliteDetector::rebuildCpuOnFastCores() {
-    // XNNPACK starts its worker threads when the interpreter is made, and a thread keeps the core binding of the
-    // thread that started it. The interpreter made at load started them wherever the loading thread could run.
+    // XNNPACK starts its worker threads when its delegate is made, and a thread keeps the core binding of the
+    // thread that started it. The delegate made at load started them wherever the loading thread could run.
     Engine pinned;
     if (!build(pinned, false) || !hasTheReadTensors(pinned)) {
         release(pinned);

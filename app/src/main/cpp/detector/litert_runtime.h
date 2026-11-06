@@ -5,8 +5,21 @@
 #include <tflite/delegates/gpu/delegate.h>
 
 #include <cstdarg>
+#include <cstdint>
 
 namespace aimbuddy {
+
+/**
+ * The XNNPACK delegate's options (TfLiteXNNPackDelegateOptions). LiteRT's packages carry no header
+ * for the delegate, so they are declared by what every LiteRT version has in common: the thread
+ * count comes first, and the struct has only grown at its end (56 bytes at 1.4.0 and 1.4.1, 64 on
+ * main). The storage is larger than any of them: the library's defaults function fills its own part
+ * and the delegate reads only that.
+ */
+struct alignas(8) XnnpackOptions {
+    int32_t numThreads;
+    unsigned char libraryFields[252];
+};
 
 /**
  * The parts of LiteRT's C API that the TFLite detector calls, looked up in the library when it is
@@ -36,6 +49,10 @@ struct LiteRtApi {
     decltype(&TfLiteTensorByteSize) tensorByteSize;
     decltype(&TfLiteTensorData) tensorData;
     decltype(&TfLiteTensorQuantizationParams) tensorQuantization;
+    // The XNNPACK delegate, which the library exports but its C API does not apply by itself.
+    XnnpackOptions (*xnnpackOptionsDefault)();
+    TfLiteDelegate* (*xnnpackCreate)(const XnnpackOptions* options);
+    void (*xnnpackDelete)(TfLiteDelegate* delegate);
 };
 
 /// The GPU delegate's C API, from the delegate's own library.

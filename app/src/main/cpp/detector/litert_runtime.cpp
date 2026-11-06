@@ -13,7 +13,7 @@ namespace {
 constexpr const char* kLiteRtLibrary = "libtensorflowlite_jni.so";
 constexpr const char* kGpuDelegateLibrary = "libtensorflowlite_gpu_jni.so";
 
-/// Looks one function up. dlsym hands every symbol back untyped; the slot's type is the header's declaration of it.
+/// Looks one function up. dlsym hands every symbol back untyped; the slot's type is the function's declaration.
 template <typename Function>
 bool bind(void* library, const char* name, Function* slot) {
     *slot = reinterpret_cast<Function>(dlsym(library, name));
@@ -56,7 +56,10 @@ bool bindAll(void* library, LiteRtApi& api) {
            bind(library, "TfLiteTensorDim", &api.tensorDim) &&
            bind(library, "TfLiteTensorByteSize", &api.tensorByteSize) &&
            bind(library, "TfLiteTensorData", &api.tensorData) &&
-           bind(library, "TfLiteTensorQuantizationParams", &api.tensorQuantization);
+           bind(library, "TfLiteTensorQuantizationParams", &api.tensorQuantization) &&
+           bind(library, "TfLiteXNNPackDelegateOptionsDefault", &api.xnnpackOptionsDefault) &&
+           bind(library, "TfLiteXNNPackDelegateCreate", &api.xnnpackCreate) &&
+           bind(library, "TfLiteXNNPackDelegateDelete", &api.xnnpackDelete);
 }
 
 bool bindAll(void* library, LiteRtGpuApi& api) {
