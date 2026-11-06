@@ -1,9 +1,7 @@
 #include "yolo_detector.h"
 
-#include <ncnn/cpu.h>
 #include <ncnn/gpu.h>
 
-#include <algorithm>
 #include <chrono>
 #include <iterator>
 #include <vector>
@@ -11,6 +9,7 @@
 #include "../core/output_agreement.h"
 #include "../settings.h"
 #include "../utils/logger.h"
+#include "backend_timing.h"
 
 namespace aimbuddy {
 
@@ -19,38 +18,15 @@ namespace {
 /// Network input sizes tried, in order, when the model description does not state one.
 constexpr int kProbeInputSizes[] = {256, 320, 384, 416, 512, 640};
 
-/// Runs thrown away before timing, so caches and GPU pipelines are warm.
-constexpr int kBenchmarkWarmupRuns = 3;
-constexpr int kBenchmarkTimedRuns = 12;
-
-/// The GPU is shared with the game, so it must beat the CPU by a clear margin to be used.
-constexpr float kGpuMustBeFasterBy = 0.80f;
-
 /// What ncnn's GpuInfo::type() says of a Vulkan device that is the CPU in disguise (SwiftShader on an
 /// emulator). It cannot beat the CPU path, and loading the network onto it takes about a minute.
 constexpr int kGpuTypeCpu = 3;
-
-/// CPU worker threads are capped so the game keeps most of the fast cores.
-constexpr int kMaxCpuThreads = 3;
-
-/// How long idle OpenMP workers spin before sleeping. The library default (200 ms) would keep
-/// every worker busy between 30 to 60 Hz frames, wasting power and heat for no latency gain.
-constexpr int kSpinWaitMs = 1;
 
 /// Grey level of the synthetic image used to probe and time the network.
 constexpr float kProbeGrey = 0.45f;
 
 float elapsedMs(std::chrono::steady_clock::time_point since) {
     return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - since).count();
-}
-
-/// Worker threads for CPU inference: the fast cores, but not all of them.
-int cpuThreadCount() {
-    const int big = ncnn::get_big_cpu_count();
-    if (big > 0) {
-        return std::min(big, kMaxCpuThreads);
-    }
-    return std::max(1, std::min(ncnn::get_cpu_count() / 2, kMaxCpuThreads));
 }
 
 /// Options that suit both backends: low memory, half precision where the hardware allows it.
@@ -141,7 +117,7 @@ bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelP
 
     applyCommonOptions(cpuNet_.opt);
     cpuNet_.opt.use_vulkan_compute = false;
-    cpuNet_.opt.num_threads = cpuThreadCount();
+    cpuNet_.opt.num_threads = fastCoreThreadCount();
     if (!loadNet(cpuNet_, paramPath_.c_str(), binPath_.c_str()) || cpuNet_.input_indexes().empty() ||
         cpuNet_.output_indexes().empty()) {
         unload();
@@ -154,16 +130,12 @@ bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelP
         unload();
         return false;
     }
-    if (profile_.declaredClassCount == 0) {
-        // No description saved with the model: guess the roles from how many classes it has.
-        const bool endToEnd = profile_.endToEndOutput;
-        const int inputSize = profile_.inputSize;
-        profile_ = ModelProfile::defaultsFor(spec_.layout == OutputLayout::kEndToEnd ? 1 : spec_.classCount);
-        profile_.endToEndOutput = endToEnd;
-        profile_.inputSize = inputSize;
-    } else if (spec_.layout != OutputLayout::kEndToEnd && profile_.declaredClassCount != spec_.classCount) {
+    if (profile_.declaredClassCount != 0 && spec_.layout != OutputLayout::kEndToEnd &&
+        profile_.declaredClassCount != spec_.classCount) {
         LOGW("Model has %d classes but its description lists %d", spec_.classCount, profile_.declaredClassCount);
     }
+    // No description saved with the model: the roles are guessed from how many classes it has.
+    profile_ = settleProfile(profile_, spec_);
 
     active_ = &cpuNet_;
     backend_ = Backend::kCpu;
@@ -184,24 +156,7 @@ void YoloDetector::unload() {
 float YoloDetector::medianLatencyMs(ncnn::Net& net, const std::function<bool()>& shouldStop) {
     const ncnn::Mat probe = makeProbeImage(inputSize_);
     ncnn::Mat output;
-    for (int i = 0; i < kBenchmarkWarmupRuns; ++i) {
-        if (shouldStop() || !runOnce(net, probe, output)) {
-            return -1.0f;
-        }
-    }
-    std::vector<float> times;
-    for (int i = 0; i < kBenchmarkTimedRuns; ++i) {
-        if (shouldStop()) {
-            return -1.0f;
-        }
-        const auto start = std::chrono::steady_clock::now();
-        if (!runOnce(net, probe, output)) {
-            return -1.0f;
-        }
-        times.push_back(elapsedMs(start));
-    }
-    std::sort(times.begin(), times.end());
-    return times[times.size() / 2];
+    return medianRunMs([&] { return runOnce(net, probe, output); }, shouldStop);
 }
 
 bool YoloDetector::useBackend(Backend backend) {
@@ -225,8 +180,7 @@ void YoloDetector::chooseBackend(const std::function<bool()>& shouldStop) {
         return;
     }
     // Bind this thread and ncnn's CPU workers to the fast cores; the little cores stay free for the game and system.
-    ncnn::set_cpu_powersave(2);
-    ncnn::set_kmp_blocktime(kSpinWaitMs);
+    pinToFastCores();
 
     // A stop leaves the CPU net that load() set up as the backend, and nothing will run on it anyway.
     const float cpuMs = medianLatencyMs(cpuNet_, shouldStop);
@@ -258,7 +212,7 @@ void YoloDetector::chooseBackend(const std::function<bool()>& shouldStop) {
         return;
     }
 
-    bool useGpu = gpuLoaded_ && cpuMs > 0.0f && gpuMs < cpuMs * kGpuMustBeFasterBy;
+    bool useGpu = gpuLoaded_ && gpuIsFastEnough(cpuMs, gpuMs);
     if (useGpu && !gpuAnswersLikeCpu()) {
         // Fast and wrong is no use: the detector would see nobody, with nothing to say why.
         useGpu = false;
@@ -325,19 +279,7 @@ bool YoloDetector::detect(const RoiFrame& frame, DetectionBatch& batch) {
     DecodeParams params;
     params.minScore = minScore_.load(std::memory_order_relaxed);
     params.modelSize = inputSize_;
-    ModelBox boxes[kMaxDetections];
-    const int count =
-        decodeDetections(tensorData(output), output.h, output.w, spec_, params, profile_, boxes, kMaxDetections);
-
-    const float screenPerCapture = frame.geometry.screenPerCapture();
-    batch.count = count;
-    for (int i = 0; i < count; ++i) {
-        batch.detections[i] = mapToScreen(boxes[i], frame.roi, frame.geometry, inputSize_);
-    }
-    batch.scanned.left = static_cast<float>(frame.roi.x) * screenPerCapture;
-    batch.scanned.top = static_cast<float>(frame.roi.y) * screenPerCapture;
-    batch.scanned.right = static_cast<float>(frame.roi.x + frame.roi.side) * screenPerCapture;
-    batch.scanned.bottom = static_cast<float>(frame.roi.y + frame.roi.side) * screenPerCapture;
+    decodeIntoBatch(tensorData(output), output.h, output.w, spec_, params, profile_, frame.roi, frame.geometry, &batch);
     batch.captureNs = frame.captureTimeNs;
     batch.inferenceMs = elapsedMs(start);
     return true;

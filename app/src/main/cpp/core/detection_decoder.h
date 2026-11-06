@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include "detection_batch.h"
 #include "geometry.h"
 #include "model_profile.h"
 #include "tracker.h"
@@ -52,6 +53,14 @@ bool inferDecodeSpec(const float* data, int rows, int cols, bool endToEnd, Decod
 int inferInputSize(int anchors);
 
 /**
+ * What each class means once the output's shape is known. A model saved without a description
+ * (`declared.declaredClassCount` 0) gets the roles ModelProfile::defaultsFor gives its class count,
+ * one class for an end-to-end export whose shape does not say; its end-to-end flag and input size
+ * are kept. A description is returned as it is.
+ */
+ModelProfile settleProfile(const ModelProfile& declared, const DecodeSpec& spec);
+
+/**
  * Turns the output tensor into a short list of boxes, strongest first.
  *
  * Steps: read each candidate's best class, drop weak and ignored ones, convert to corner form,
@@ -70,6 +79,15 @@ int decodeDetections(const float* data, int rows, int cols, const DecodeSpec& sp
  */
 Detection mapToScreen(const ModelBox& box, const RoiRect& roi, const CaptureGeometry& geometry,
                       int modelSize);
+
+/**
+ * Decodes one output tensor straight into `batch`: the boxes in screen pixels, strongest first, and
+ * the part of the screen the model looked at. The capture time and the inference time are the
+ * caller's to set.
+ */
+void decodeIntoBatch(const float* data, int rows, int cols, const DecodeSpec& spec, const DecodeParams& params,
+                     const ModelProfile& profile, const RoiRect& roi, const CaptureGeometry& geometry,
+                     DetectionBatch* batch);
 
 }  // namespace aimbuddy
 

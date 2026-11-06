@@ -229,6 +229,73 @@ TEST(mapping_takes_model_pixels_to_screen_pixels) {
     CHECK_NEAR(d.score, 0.7, 1e-6);
 }
 
+TEST(batch_holds_the_decoded_boxes_in_screen_pixels) {
+    CaptureGeometry geometry;
+    geometry.screenWidth = 2400;
+    geometry.screenHeight = 1080;
+    geometry.captureWidth = 1600;
+    geometry.captureHeight = 720;
+    RoiRect roi;
+    roi.x = 640;
+    roi.y = 200;
+    roi.side = 320;
+    RawTensor tensor(1, 50);
+    tensor.setAnchor(7, 128, 160, 40, 80, 0, 0.9f);
+    tensor.setAnchor(9, 60, 60, 20, 40, 0, 0.05f);   // too weak to keep
+    DecodeParams params;
+    params.minScore = 0.25f;
+    params.modelSize = 256;
+
+    DetectionBatch batch;
+    decodeIntoBatch(tensor.data.data(), tensor.rows(), tensor.anchors, specFor(tensor), params, ModelProfile::defaultsFor(1),
+                    roi, geometry, &batch);
+
+    // 1.875 screen px per model px (see mapping_takes_model_pixels_to_screen_pixels), the region starting at (960, 300).
+    CHECK(batch.count == 1);
+    CHECK_NEAR(batch.detections[0].x, 1162.5, 1e-3);
+    CHECK_NEAR(batch.detections[0].y, 525.0, 1e-3);
+    CHECK_NEAR(batch.detections[0].width, 75.0, 1e-3);
+    CHECK_NEAR(batch.detections[0].height, 150.0, 1e-3);
+    CHECK_NEAR(batch.scanned.left, 960.0, 1e-3);
+    CHECK_NEAR(batch.scanned.top, 300.0, 1e-3);
+    CHECK_NEAR(batch.scanned.right, 1440.0, 1e-3);
+    CHECK_NEAR(batch.scanned.bottom, 780.0, 1e-3);
+}
+
+TEST(profile_without_a_description_follows_the_model) {
+    ModelProfile unknown;
+    unknown.inputSize = 320;
+    DecodeSpec raw;
+    raw.layout = OutputLayout::kChannelsFirst;
+    raw.classCount = 3;
+    const ModelProfile settled = settleProfile(unknown, raw);
+    CHECK(settled.declaredClassCount == 3);
+    CHECK(settled.roleOf(0) == ClassRole::kBody);
+    CHECK(settled.roleOf(1) == ClassRole::kHead);
+    CHECK(settled.roleOf(2) == ClassRole::kIgnore);
+    CHECK(settled.inputSize == 320);
+
+    ModelProfile endToEnd;
+    endToEnd.endToEndOutput = true;
+    DecodeSpec filtered;
+    filtered.layout = OutputLayout::kEndToEnd;
+    const ModelProfile settledEndToEnd = settleProfile(endToEnd, filtered);
+    CHECK(settledEndToEnd.declaredClassCount == 1);
+    CHECK(settledEndToEnd.roleOf(0) == ClassRole::kBody);
+    CHECK(settledEndToEnd.endToEndOutput);
+}
+
+TEST(profile_with_a_description_is_kept) {
+    const ModelProfile declared = ModelProfile::parseRoles("head,ignore,body", 0);
+    DecodeSpec raw;
+    raw.layout = OutputLayout::kChannelsFirst;
+    raw.classCount = 2;   // fewer classes than the description: the description still decides
+    const ModelProfile settled = settleProfile(declared, raw);
+    CHECK(settled.declaredClassCount == 3);
+    CHECK(settled.roleOf(0) == ClassRole::kHead);
+    CHECK(settled.roleOf(2) == ClassRole::kBody);
+}
+
 TEST(roi_is_centred_and_clamped) {
     CaptureGeometry geometry;
     geometry.screenWidth = 2400;

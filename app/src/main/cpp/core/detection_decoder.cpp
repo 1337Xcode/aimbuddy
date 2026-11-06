@@ -236,6 +236,16 @@ int inferInputSize(int anchors) {
     return 0;
 }
 
+ModelProfile settleProfile(const ModelProfile& declared, const DecodeSpec& spec) {
+    if (declared.declaredClassCount != 0) {
+        return declared;
+    }
+    ModelProfile settled = ModelProfile::defaultsFor(spec.layout == OutputLayout::kEndToEnd ? 1 : spec.classCount);
+    settled.endToEndOutput = declared.endToEndOutput;
+    settled.inputSize = declared.inputSize;
+    return settled;
+}
+
 int decodeDetections(const float* data, int rows, int cols, const DecodeSpec& spec,
                      const DecodeParams& params, const ModelProfile& profile,
                      ModelBox* out, int capacity) {
@@ -294,6 +304,22 @@ Detection mapToScreen(const ModelBox& box, const RoiRect& roi, const CaptureGeom
     detection.classId = box.classId;
     detection.clipFlags = box.clipFlags;
     return detection;
+}
+
+void decodeIntoBatch(const float* data, int rows, int cols, const DecodeSpec& spec, const DecodeParams& params,
+                     const ModelProfile& profile, const RoiRect& roi, const CaptureGeometry& geometry,
+                     DetectionBatch* batch) {
+    ModelBox boxes[kMaxDetections];
+    const int count = decodeDetections(data, rows, cols, spec, params, profile, boxes, kMaxDetections);
+    batch->count = count;
+    for (int i = 0; i < count; ++i) {
+        batch->detections[i] = mapToScreen(boxes[i], roi, geometry, params.modelSize);
+    }
+    const float screenPerCapture = geometry.screenPerCapture();
+    batch->scanned.left = static_cast<float>(roi.x) * screenPerCapture;
+    batch->scanned.top = static_cast<float>(roi.y) * screenPerCapture;
+    batch->scanned.right = static_cast<float>(roi.x + roi.side) * screenPerCapture;
+    batch->scanned.bottom = static_cast<float>(roi.y + roi.side) * screenPerCapture;
 }
 
 }  // namespace aimbuddy

@@ -162,6 +162,7 @@ set(ESP_SOURCES
     core/look_watch.cpp
     core/output_agreement.cpp
     core/response_estimator.cpp
+    detector/backend_timing.cpp
     detector/yolo_detector.cpp
     pipeline/aim_loop.cpp
     renderer/imgui_menu.cpp
