@@ -67,6 +67,7 @@ private val BoxColors = listOf(
 /** The third-party parts the app is built from, with the license each one comes under. */
 private val Notices = listOf(
     "NCNN" to "BSD 3-Clause, Tencent",
+    "LiteRT (TensorFlow Lite)" to "Apache 2.0, Google",
     "Dear ImGui" to "MIT, Omar Cornut",
     "Shizuku API" to "Apache 2.0, RikkaApps",
     "AndroidX, Jetpack Compose, Material icons" to "Apache 2.0, Google",
