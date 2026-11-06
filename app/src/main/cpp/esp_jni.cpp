@@ -337,8 +337,8 @@ JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_resetSettings(JNIEnv* /* e
 /**
  * @brief Loads the detection model and tells the detector what its classes mean
  * @param format The model's format, as aimbuddy::ModelFormat numbers it
- * @param modelPath Path of the file the format is read from: the .param file of an NCNN model
- * @param weightsPath Path of the NCNN .bin file
+ * @param modelPath Path of the file the format is read from: the .param file of an NCNN model, or the .tflite file
+ * @param weightsPath Path of the NCNN .bin file; null for a .tflite model
  * @param roles Comma separated roles in class order, such as "body,head"; null or empty when unknown
  * @param endToEnd True if the model already removes duplicate detections
  * @param inputSize Width and height of the network input, or 0 to work it out

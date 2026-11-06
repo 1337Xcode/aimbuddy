@@ -78,6 +78,40 @@ if (releaseKeystoreFile != null && !hasReleaseKeystore) {
     logger.warn("AimBuddy: keystore configured via ${releaseKeystore.source} but ${releaseKeystoreFile} does not exist.")
 }
 
+// ---------------------------------------------------------------------------
+// LiteRT (TensorFlow Lite) runs models in the .tflite format.
+//
+// Its native libraries and their C headers come from these two packages on
+// Google's Maven, at one pinned version; nothing of them is kept in this
+// repository. unpackLiteRt puts the arm64 libraries where the APK takes its
+// native libraries from, and the headers where CMake finds them. The app does
+// not link the libraries: it opens them only when a .tflite model is loaded
+// (detector/litert_runtime.cpp), so NCNN models never depend on them.
+// ---------------------------------------------------------------------------
+def liteRtVersion = '1.4.2'
+configurations {
+    liteRt {
+        canBeConsumed = false
+        transitive = false
+    }
+}
+def liteRtDir = layout.buildDirectory.dir('litert').get().asFile
+def unpackLiteRt = tasks.register('unpackLiteRt', Sync) {
+    def archives = configurations.liteRt
+    from({ archives.collect { zipTree(it) } }) {
+        include 'jni/arm64-v8a/*.so', 'headers/**'
+    }
+    into liteRtDir
+    includeEmptyDirs = false
+}
+tasks.named('preBuild') { dependsOn unpackLiteRt }
+// CMake reads the headers when it configures, which must not run before they are there.
+tasks.configureEach { task ->
+    if (task.name.startsWith('configureCMake') || task.name.startsWith('buildCMake')) {
+        task.dependsOn unpackLiteRt
+    }
+}
+
 android {
     namespace = 'com.aimbuddy'
     compileSdk = 35
@@ -103,7 +137,8 @@ android {
                 // double-quote the define and break the build.
                 arguments "-DANDROID_STL=c++_static",
                           "-DANDROID_ARM_NEON=TRUE",
-                          "-DAIMBUDDY_VERSION=${aimbuddyVersionName}"
+                          "-DAIMBUDDY_VERSION=${aimbuddyVersionName}",
+                          "-DLITERT_INCLUDE_DIR=${new File(liteRtDir, 'headers').path.replace('\\', '/')}"
             }
         }
 
@@ -183,6 +218,7 @@ android {
     sourceSets {
         main {
             assets.srcDirs = ['src/main/assets']
+            jniLibs.srcDir new File(liteRtDir, 'jni')
         }
     }
 
@@ -278,4 +314,8 @@ dependencies {
     // Optional non-root input backend (Shizuku)
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
+
+    // LiteRT's native runtime and GPU delegate, for .tflite models (see unpackLiteRt above)
+    liteRt "com.google.ai.edge.litert:litert:${liteRtVersion}@aar"
+    liteRt "com.google.ai.edge.litert:litert-gpu:${liteRtVersion}@aar"
 }

@@ -3,6 +3,7 @@
 #include "../settings.h"
 #include "../utils/logger.h"
 #include "ncnn_detector.h"
+#include "tflite_detector.h"
 
 namespace aimbuddy {
 
@@ -10,6 +11,9 @@ bool modelFormatFromCode(int code, ModelFormat* format) {
     switch (code) {
         case static_cast<int>(ModelFormat::kNcnn):
             *format = ModelFormat::kNcnn;
+            return true;
+        case static_cast<int>(ModelFormat::kTflite):
+            *format = ModelFormat::kTflite;
             return true;
         default:
             return false;
@@ -53,6 +57,8 @@ std::unique_ptr<Detector> makeDetector(ModelFormat format) {
     switch (format) {
         case ModelFormat::kNcnn:
             return std::make_unique<NcnnDetector>();
+        case ModelFormat::kTflite:
+            return std::make_unique<TfliteDetector>();
     }
     return nullptr;
 }

@@ -160,11 +160,14 @@ set(ESP_SOURCES
     core/fingerprint.cpp
     core/global_motion.cpp
     core/look_watch.cpp
+    core/model_tensors.cpp
     core/output_agreement.cpp
     core/response_estimator.cpp
     detector/backend_timing.cpp
     detector/detector.cpp
+    detector/litert_runtime.cpp
     detector/ncnn_detector.cpp
+    detector/tflite_detector.cpp
     pipeline/aim_loop.cpp
     renderer/imgui_menu.cpp
     renderer/menu_widgets.cpp
@@ -182,6 +185,18 @@ target_include_directories(esp_native PRIVATE
     ${NCNN_INCLUDE_DIR}
     ${IMGUI_DIR}
 )
+
+# =============================================================================
+# LiteRT runs .tflite models. Gradle unpacks its C headers from the pinned Maven
+# package (unpackLiteRt in app/build.gradle) and passes their folder here. The
+# libraries are not linked: the app opens them with dlopen only when a .tflite
+# model is loaded, so the rest of the app never depends on them.
+# =============================================================================
+if(NOT DEFINED LITERT_INCLUDE_DIR OR NOT EXISTS "${LITERT_INCLUDE_DIR}/tflite/c/c_api.h")
+    message(FATAL_ERROR "LiteRT headers not found in '${LITERT_INCLUDE_DIR}'. Gradle's unpackLiteRt task puts them there.")
+endif()
+target_include_directories(esp_native SYSTEM PRIVATE ${LITERT_INCLUDE_DIR})
+target_link_libraries(esp_native ${CMAKE_DL_LIBS})
 
 # Hooks that let a test scene stand in for the model. Only debug builds switch them on.
 option(AIMBUDDY_DEBUG_HOOKS "Compile the testing hooks" OFF)

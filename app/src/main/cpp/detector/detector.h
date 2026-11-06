@@ -16,7 +16,8 @@ namespace aimbuddy {
 
 /// The formats a detection model comes in. The numbers are the ones Kotlin passes (ModelFiles.formatCode).
 enum class ModelFormat : int {
-    kNcnn = 0,
+    kNcnn = 0,    ///< A .param file and a .bin file, run by NCNN.
+    kTflite = 1,  ///< One .tflite file, run by LiteRT.
 };
 
 /// The format Kotlin names by `code`; false for a number this build does not know.
@@ -25,8 +26,8 @@ bool modelFormatFromCode(int code, ModelFormat* format);
 /// Where a model's files are.
 struct ModelFiles {
     ModelFormat format = ModelFormat::kNcnn;
-    std::string modelPath;     ///< The NCNN .param file.
-    std::string weightsPath;   ///< The NCNN .bin file.
+    std::string modelPath;     ///< The NCNN .param file, or the .tflite file.
+    std::string weightsPath;   ///< The NCNN .bin file; empty for a .tflite model, which holds its weights.
 };
 
 /**

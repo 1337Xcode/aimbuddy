@@ -50,6 +50,16 @@
         android:theme="@style/Theme.AimBuddy"
         android:hardwareAccelerated="true">
 
+        <!--
+          The GPU delegate of LiteRT, which can run a .tflite model, needs the phone's OpenCL
+          library. Since Android 12 an app may load such a vendor library only if it names it here.
+          These are the names the delegate tries; none is required, so the app installs on every phone.
+        -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false"/>
+        <uses-native-library android:name="libvndksupport.so" android:required="false"/>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
