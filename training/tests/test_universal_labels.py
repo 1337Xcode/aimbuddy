@@ -93,6 +93,38 @@ class TeacherEvidenceTest(unittest.TestCase):
         self.assertEqual(people[0].own_votes, 2)
 
 
+@unittest.skipUnless(HAS_OPENCV, "the universal pipeline needs opencv and numpy")
+class GameTeacherTest(unittest.TestCase):
+    """A frame the game's own teacher has seen ("game" in its boxes) is judged by that teacher first."""
+
+    def test_the_game_teacher_sure_on_its_own_makes_a_player(self):
+        people = fusion.people_in({"game": [[100, 100, 140, 200, 0.55, 0]], "sunxds": []})
+        self.assertTrue(people[0].is_player())
+
+    def test_the_game_teacher_half_sure_needs_the_general_teachers(self):
+        alone = fusion.people_in({"game": [[100, 100, 140, 200, 0.30, 0]]})
+        helped = fusion.people_in({"game": [[100, 100, 140, 200, 0.30, 0]], "sunxds": [[101, 99, 140, 201, 0.30, 0]]})
+        self.assertFalse(alone[0].is_player())
+        self.assertTrue(alone[0].is_unsure())
+        self.assertTrue(helped[0].is_player())
+
+    def test_the_general_teachers_alone_make_a_person_unsure_at_most(self):
+        people = fusion.people_in({"game": [], "sunxds": [[100, 100, 140, 200, 0.60, 0]]})
+        self.assertFalse(people[0].is_player())
+        self.assertTrue(people[0].is_unsure())
+
+    def test_what_the_general_teachers_are_only_unsure_of_is_background(self):
+        # the COCO model alone on the player's own gun: grey without a game teacher, background with one
+        people = fusion.people_in({"game": [], "coco": [[100, 100, 140, 200, 0.60, 0]]})
+        self.assertFalse(people[0].is_player())
+        self.assertFalse(people[0].is_unsure())
+
+    def test_the_game_teachers_box_is_the_persons_box(self):
+        people = fusion.people_in({"game": [[100, 100, 140, 200, 0.40, 0]], "sunxds": [[104, 96, 146, 206, 0.90, 0]]})
+        self.assertEqual(len(people), 1)
+        self.assertEqual(people[0].box, [100, 100, 140, 200])
+
+
 class DragonDataTest(unittest.TestCase):
     def test_a_polygon_becomes_the_box_round_it_and_a_box_stays_as_it_is(self):
         self.assertEqual(dragondata.box_line("1 0.2 0.3 0.4 0.3 0.4 0.7 0.2 0.7"),

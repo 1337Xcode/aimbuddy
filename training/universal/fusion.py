@@ -4,6 +4,10 @@ decides from that evidence which are players and which nobody can vouch for.
 Evidence per person: the best score each model gave a box on it. sunxds and the COCO model are the first teachers;
 gen2 and sunft are models trained on their labels, which find mobile players the first teachers score low. A person
 the two trained models both see, or one of them and the COCO model, is a player: a single model is not enough.
+
+A game with a teacher of its own (label_frames.py --game-teacher), trained on people's labels of that game, is judged by
+it first. The four general teachers call a gun, a hand or a lamp post a player too often there, so on their own they
+make a person unsure at most, and what they are only unsure of is left as background.
 """
 from dataclasses import dataclass, field
 
@@ -18,6 +22,11 @@ SUNXDS_WITH_HELP = 0.12   # sunxds this sure with the COCO model or a trained mo
 
 # Evidence too weak for a player but too strong to call the place empty: painted grey.
 UNSURE = {"sunxds": 0.12, "coco": 0.35, "gen2": 0.25, "sunft": 0.25}
+
+# The game's own teacher: a player on its own, a player with the general teachers' agreement, and unsure.
+GAME_SURE = 0.50
+GAME_WITH_HELP = 0.25
+GAME_UNSURE = 0.15
 
 
 def iou(a, b):
@@ -37,6 +46,7 @@ class Person:
     box: list
     scores: dict = field(default_factory=dict)
     own_votes: int = 0     # trained models that called it the player's own character
+    game_judged: bool = False   # the frame was seen by the game's own teacher
 
     def score(self, model):
         """The model's best score on this person, 0 when it gave none."""
@@ -44,22 +54,33 @@ class Person:
 
     def is_player(self):
         """Enough evidence that this is a person in the game."""
+        if self.game_judged:
+            game = self.score("game")
+            return game >= GAME_SURE or (game >= GAME_WITH_HELP and self.general_teachers_agree())
+        return self.general_teachers_agree()
+
+    def is_unsure(self):
+        """Some evidence, not enough for a player."""
+        if self.is_player():
+            return False
+        if self.game_judged:
+            return self.score("game") >= GAME_UNSURE or self.general_teachers_agree()
+        return any(self.score(m) >= bar for m, bar in UNSURE.items())
+
+    def general_teachers_agree(self):
+        """The four general teachers together call it a player."""
         s, c, g, f = (self.score(m) for m in ("sunxds", "coco", "gen2", "sunft"))
         student = max(g, f)
         return (s >= SUNXDS_SURE or (g >= STUDENTS_BOTH and f >= STUDENTS_BOTH)
                 or (student >= STUDENT_WITH_COCO and c >= COCO_SURE)
                 or (s >= SUNXDS_WITH_HELP and (c >= COCO_SURE or student >= STUDENT_WITH_COCO)))
 
-    def is_unsure(self):
-        """Some evidence, not enough for a player."""
-        return not self.is_player() and any(self.score(m) >= bar for m, bar in UNSURE.items())
-
 
 def people_in(boxes):
-    """Joins the people boxes of all models (sunxds player, COCO person, trained models' body and own character) into
-    one list, surest first."""
+    """Joins the people boxes of all models (the game's teacher, sunxds player, COCO person, trained models' body and
+    own character) into one list, surest first. A person's box is the first model's that saw it, the game's first."""
     found, voters = [], []
-    for model, cls_ok in (("sunxds", (0,)), ("gen2", (0, 2)), ("sunft", (0, 2)), ("coco", (0,))):
+    for model, cls_ok in (("game", (0,)), ("sunxds", (0,)), ("gen2", (0, 2)), ("sunft", (0, 2)), ("coco", (0,))):
         for b in boxes.get(model, []):
             if b[5] not in cls_ok:
                 continue
@@ -74,6 +95,7 @@ def people_in(boxes):
                 voters[found.index(match)].add(model)   # two boxes of one model on one person are one vote
     for person, models in zip(found, voters, strict=True):
         person.own_votes = len(models)
+        person.game_judged = "game" in boxes
     return sorted(found, key=lambda p: -max(p.scores.values()))
 
 

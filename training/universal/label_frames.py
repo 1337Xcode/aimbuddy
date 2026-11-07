@@ -7,6 +7,7 @@ the one before) and, for each frame, every box each model gave above a low bar, 
   coco    YOLO11x trained on COCO, people only
   gen2    AimBuddy General 2 (body, head, own character), whole frame at its width, flips and three scales
   sunft   sunxds fine-tuned on the first universal set (body, head, own character), as gen2
+  game    a game's own teacher (--game-teacher), only on that game's videos: whole frame at 768 px, flips and scales
 The two fine-tuned models find mobile players the PC models score low; what they call the player's own character is
 kept as a person and decided again by cut_squares.py.
 
@@ -14,7 +15,9 @@ The PC sets are labelled by people, but three of them have no heads: for those, 
 validation picture are kept too (pc_<set>.json).
 
 Usage: label_frames.py --videos <folder> --pc <folder> --cache <folder> --sunxds <pt> --coco <pt> --gen2 <pt> --sunft <pt>
-A video or set whose cache file exists is skipped, so a stopped run carries on where it was.
+                       [--game-teacher <game>=<pt>]
+A video or set whose cache file exists is skipped, so a stopped run carries on where it was. A cached video of a game
+whose teacher is given and has not seen it gets that teacher's boxes added.
 """
 import argparse
 import json
@@ -33,6 +36,7 @@ from sources import (PC_SETS, VIDEOS, grey_out_broadcast, has_heads, pc_pictures
 SAME_FRAME_DIFF = 3.0   # mean grey difference (0..255) below which a frame repeats the last one kept
 MIN_SCORE = 0.10
 PC_HEAD_SCORE = 0.30    # sunxds heads on PC pictures, where the bodies are labelled by people
+GAME_TEACHER_SIZE = 768   # the size a game's teacher was trained at; its screenshots were 910 px wide
 
 
 def boxes_of(result, keep_classes=None):
@@ -82,7 +86,36 @@ def teacher_boxes(frame, models, device):
     for name in ("gen2", "sunft"):
         found[name] = boxes_of(models[name].predict(frame, imgsz=student_size, augment=True, conf=MIN_SCORE,
                                                     device=device, verbose=False)[0])
+    if "game" in models:
+        found["game"] = game_teacher_boxes(frame, models["game"], device)
     return found
+
+
+def game_teacher_boxes(frame, model, device):
+    """A game's own teacher's boxes on one frame, in frame pixels."""
+    return boxes_of(model.predict(frame, imgsz=GAME_TEACHER_SIZE, augment=True, conf=MIN_SCORE, device=device,
+                                  verbose=False)[0])
+
+
+def add_game_teacher(record, path, model, device):
+    """Adds a game's teacher's boxes to every cached frame of one video that lacks them. Returns True if any were."""
+    wanted = {f["index"]: f for f in record["frames"] if "game" not in f["boxes"]}
+    if not wanted:
+        return False
+    last = max(wanted)
+    for index, decode in video_frames(path):
+        if index > last:
+            break
+        if index in wanted:
+            frame = decode()
+            if record["broadcast"]:
+                grey_out_broadcast(frame)
+            wanted.pop(index)["boxes"]["game"] = game_teacher_boxes(frame, model, device)
+            if not wanted:
+                break
+    if wanted:
+        raise SystemExit(f"{path}: {len(wanted)} of the cached frames could not be read")
+    return True
 
 
 def label_pc_set(root, folder, sunxds, device):
@@ -100,20 +133,30 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for name in ("videos", "pc", "cache", "sunxds", "coco", "gen2", "sunft"):
         parser.add_argument(f"--{name}", required=True)
+    parser.add_argument("--game-teacher", help="<game>=<pt>: that game's own teacher, run on its videos only")
     parser.add_argument("--device", default=0)
     args = parser.parse_args()
     cache = pathlib.Path(args.cache)
     cache.mkdir(parents=True, exist_ok=True)
     models = {name: YOLO(getattr(args, name)) for name in ("sunxds", "coco", "gen2", "sunft")}
+    teacher_game, teacher = None, None
+    if args.game_teacher:
+        teacher_game, weights = args.game_teacher.split("=", 1)
+        teacher = YOLO(weights)
     for game, video, split, every_s, broadcast in VIDEOS:
         out = cache / f"{game}_{video}.json"
-        if out.exists():
-            continue
         path = pathlib.Path(args.videos) / game / f"{video}.mp4"
+        if out.exists():
+            record = json.loads(out.read_text())
+            if game == teacher_game and add_game_teacher(record, path, teacher, args.device):
+                out.write_text(json.dumps(record))
+                print(f"{game} {video}: game teacher added", flush=True)
+            continue
         if not path.is_file():
             raise SystemExit(f"{path} is missing; see docs/Training.md for where the videos come from")
         start = time.time()
-        size, frames = label_video(path, every_s, broadcast, models, args.device)
+        video_models = dict(models, game=teacher) if game == teacher_game else models
+        size, frames = label_video(path, every_s, broadcast, video_models, args.device)
         record = {"game": game, "video": video, "split": split, "broadcast": broadcast, "every_s": every_s, "size": size,
                   "frames": frames}
         out.write_text(json.dumps(record))
