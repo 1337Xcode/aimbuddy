@@ -2,7 +2,7 @@
 
 The detectors AimBuddy runs are published from this folder. The app lists them, installs the one the player picks and says when a newer version exists. There is no server behind it: the store is a static `index.json` and the model files, served straight from this repository.
 
-A model here is an object detector that finds people in a game picture. AimBuddy turns its boxes into outlines on the screen and, when the player switches the assist on, into the targets the aim assist works with.
+A model here is an object detector that finds people in a game picture. AimBuddy turns its boxes into outlines on the screen and, when the player switches the assist on, into the targets it steers toward.
 
 ## How it works
 
