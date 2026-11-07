@@ -518,7 +518,18 @@ JNIEXPORT void JNICALL Java_com_aimbuddy_DebugHooks_enableAssist(JNIEnv* /* env 
 JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_stop(JNIEnv* /* env */, jclass /* clazz */) {
     g_aimLoop.stop();
     g_pipeline.stop();
-    // Every Start loads the model again, so the one this run used would only hold memory while the game runs.
+}
+
+/**
+ * @brief Releases the model. Every Start loads it again, so the one a run used would only hold memory while the game
+ * runs. Waits for a load in progress, which a Stop during Start leaves running, so it is called off the main thread.
+ */
+JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_unloadModel(JNIEnv* /* env */, jclass /* clazz */) {
+    std::lock_guard<std::mutex> lock(g_loadMutex);
+    if (g_pipeline.isRunning()) {
+        LOGE("Cannot release the model while running");
+        return;
+    }
     g_pipeline.unloadModel();
     g_modelLoaded = false;
 }

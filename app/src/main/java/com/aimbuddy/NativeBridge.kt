@@ -124,6 +124,10 @@ object NativeBridge {
     @JvmStatic
     external fun stop()
 
+    /** Releases the model after a run. Waits for a model that is still loading, so call it off the main thread. */
+    @JvmStatic
+    external fun unloadModel()
+
     @JvmStatic
     external fun isRunning(): Boolean
 

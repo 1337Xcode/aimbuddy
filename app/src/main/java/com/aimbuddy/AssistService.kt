@@ -336,6 +336,8 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         AssistState.set(AssistState.Phase.STOPPING)
 
         guarded("native stop") { NativeBridge.stop() }
+        // On the thread that loads the model, after any load still under way: the two never overlap.
+        guarded("model release") { worker.execute { guarded("model release") { NativeBridge.unloadModel() } } }
         guarded("thermal governor") { thermalGovernor?.stop() }
         thermalGovernor = null
         guarded("touch helper") { touchHelper?.stop() }
