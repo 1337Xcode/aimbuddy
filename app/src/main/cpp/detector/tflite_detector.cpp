@@ -178,25 +178,29 @@ bool TfliteDetector::build(Engine& engine, bool onGpu) {
     }
     api_->optionsSetNumThreads(options, fastCoreThreadCount());
     api_->optionsSetErrorReporter(options, reportLiteRtError, nullptr);
-    if (onGpu) {
-        engine.gpuDelegate = createGpuDelegate();
-        if (engine.gpuDelegate == nullptr) {
-            api_->optionsDelete(options);
-            return false;
-        }
-        api_->optionsAddDelegate(options, engine.gpuDelegate);
-    } else {
-        engine.xnnpackDelegate = createXnnpackDelegate(*api_);
-        if (engine.xnnpackDelegate == nullptr) {
-            LOGW("XNNPACK could not be started: the model runs on LiteRT's own CPU kernels, which are slower");
-        } else {
-            api_->optionsAddDelegate(options, engine.xnnpackDelegate);
-        }
-    }
     engine.interpreter = api_->interpreterCreate(model_, options);
     api_->optionsDelete(options);   // the interpreter keeps what it needs of them
-    if (engine.interpreter == nullptr || !sizeFlexibleInput(engine.interpreter) ||
-        api_->allocateTensors(engine.interpreter) != kTfLiteOk) {
+    if (engine.interpreter == nullptr || !sizeFlexibleInput(engine.interpreter)) {
+        release(engine);
+        return false;
+    }
+    // The delegate takes the graph once the input has its size: a delegate given it with the options would take it
+    // at 1 x 1 for a model that leaves its size open, and the GPU's cannot follow a size change after that.
+    if (onGpu) {
+        engine.gpuDelegate = createGpuDelegate();
+        if (engine.gpuDelegate == nullptr ||
+            api_->modifyGraphWithDelegate(engine.interpreter, engine.gpuDelegate) != kTfLiteOk) {
+            release(engine);
+            return false;
+        }
+    } else {
+        engine.xnnpackDelegate = createXnnpackDelegate(*api_);
+        if (engine.xnnpackDelegate == nullptr ||
+            api_->modifyGraphWithDelegate(engine.interpreter, engine.xnnpackDelegate) != kTfLiteOk) {
+            LOGW("XNNPACK could not take the model: it runs on LiteRT's own CPU kernels, which are slower");
+        }
+    }
+    if (api_->allocateTensors(engine.interpreter) != kTfLiteOk) {
         release(engine);
         return false;
     }

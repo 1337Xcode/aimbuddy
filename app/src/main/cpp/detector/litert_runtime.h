@@ -2,6 +2,7 @@
 #define AIMBUDDY_DETECTOR_LITERT_RUNTIME_H
 
 #include <tflite/c/c_api.h>
+#include <tflite/c/c_api_experimental.h>
 #include <tflite/delegates/gpu/delegate.h>
 
 #include <cstdarg>
@@ -38,6 +39,7 @@ struct LiteRtApi {
     decltype(&TfLiteInterpreterCreate) interpreterCreate;
     decltype(&TfLiteInterpreterDelete) interpreterDelete;
     decltype(&TfLiteInterpreterResizeInputTensor) resizeInputTensor;
+    decltype(&TfLiteInterpreterModifyGraphWithDelegate) modifyGraphWithDelegate;
     decltype(&TfLiteInterpreterAllocateTensors) allocateTensors;
     decltype(&TfLiteInterpreterInvoke) invoke;
     decltype(&TfLiteInterpreterGetInputTensorCount) inputTensorCount;
