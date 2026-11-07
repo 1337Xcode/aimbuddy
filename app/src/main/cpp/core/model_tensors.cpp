@@ -67,25 +67,42 @@ void writePicture(const uint8_t* rgba, int stride, const InputSpec& spec, const 
     }
 }
 
-/// Steps of the quantization that the ends of its range may be away from 0 and 1.
+/// Steps of the quantization that the ends of its range may be away from the colour range they stand for.
 constexpr float kRangeToleranceSteps = 2.0f;
 
-/// Whether the lowest and highest value T can store stand for about 0 and 1, the range the colours are given in.
+/// The colour ranges an 8-bit input is quantized for: 0 to 1 (Ultralytics' exports), raw pixels from 0 to 255 (a
+/// model that scales them itself) and -1 to 1 (older quantized detectors). Lowest and highest value of each.
+constexpr float kColourRanges[][2] = {{0.0f, 1.0f}, {0.0f, 255.0f}, {-1.0f, 1.0f}};
+
+/// The colour range that the lowest and highest value T can store stand for, if it is one of kColourRanges.
 template <typename T>
-bool rangeIsZeroToOne(const Quantization& quantization) {
+bool colourRangeOf(const Quantization& quantization, ColourRange* range) {
     const float lowest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::min()) - quantization.zeroPoint);
     const float highest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::max()) - quantization.zeroPoint);
     const float tolerance = kRangeToleranceSteps * quantization.scale;
-    return std::fabs(lowest) <= tolerance && std::fabs(highest - 1.0f) <= tolerance;
+    for (const auto& candidate : kColourRanges) {
+        if (std::fabs(lowest - candidate[0]) <= tolerance && std::fabs(highest - candidate[1]) <= tolerance) {
+            range->lowest = candidate[0];
+            range->highest = candidate[1];
+            return true;
+        }
+    }
+    return false;
 }
 
-/// An integer input can be filled when its scale is usable and its range stands for colours from 0 to 1: a model
-/// whose input stands for raw pixels (0 to 255) or for -1 to 1 would be given the wrong numbers.
-bool standsForZeroToOne(TensorElement element, const Quantization& quantization) {
+/// The colour range an input is filled in. A float input gets 0 to 1, as the models were trained; an integer one
+/// gets the range its quantization stands for. False for an integer input without a usable scale, or whose range is
+/// none of those (only up to 0.5, say), which this writer would fill wrongly.
+bool colourRangeFor(TensorElement element, const Quantization& quantization, ColourRange* range) {
+    if (element == TensorElement::kFloat32) {
+        *range = ColourRange();
+        return true;
+    }
     if (!(quantization.scale > 0.0f && std::isfinite(quantization.scale))) {
         return false;
     }
-    return element == TensorElement::kInt8 ? rangeIsZeroToOne<int8_t>(quantization) : rangeIsZeroToOne<uint8_t>(quantization);
+    return element == TensorElement::kInt8 ? colourRangeOf<int8_t>(quantization, range)
+                                           : colourRangeOf<uint8_t>(quantization, range);
 }
 
 template <typename T>
@@ -151,12 +168,14 @@ bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols) {
 
 bool InputWriter::configure(const InputSpec& spec) {
     const bool integer = spec.element != TensorElement::kFloat32;
-    if (spec.size <= 0 || (integer && !standsForZeroToOne(spec.element, spec.quantization))) {
+    ColourRange range;
+    if (spec.size <= 0 || !colourRangeFor(spec.element, spec.quantization, &range)) {
         return false;
     }
     spec_ = spec;
+    range_ = range;
     for (int byte = 0; byte < 256; ++byte) {
-        const float value = channelValue(byte);
+        const float value = range.lowest + channelValue(byte) * (range.highest - range.lowest);
         floats_[byte] = value;
         signedBytes_[byte] = integer ? quantize<int8_t>(value, spec.quantization) : 0;
         unsignedBytes_[byte] = integer ? quantize<uint8_t>(value, spec.quantization) : 0;

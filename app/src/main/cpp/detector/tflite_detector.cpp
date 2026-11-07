@@ -267,8 +267,8 @@ bool TfliteDetector::readInput(const Engine& engine, const ModelProfile& declare
         return false;
     }
     if (!inputWriter_.configure(spec)) {
-        LOGE("The model's 8-bit input (scale %g, zero point %d) does not stand for colours from 0 to 1, which is what "
-             "AimBuddy gives a model", spec.quantization.scale, spec.quantization.zeroPoint);
+        LOGE("The model's 8-bit input (scale %g, zero point %d) stands for none of the colour ranges AimBuddy can give "
+             "a model: 0 to 1, 0 to 255 and -1 to 1", spec.quantization.scale, spec.quantization.zeroPoint);
         return false;
     }
     if (declared.inputSize > 0 && declared.inputSize != spec.size) {
@@ -276,8 +276,10 @@ bool TfliteDetector::readInput(const Engine& engine, const ModelProfile& declare
              spec.size);
     }
     resized_.assign(static_cast<size_t>(spec.size) * spec.size * kRgbaBytes, 0);
-    LOGI("Model input: %d px, %s, %s", spec.size, spec.layout == PixelLayout::kPlanar ? "channel planes" : "interleaved",
-         spec.element == TensorElement::kFloat32 ? "float" : "8-bit");
+    LOGI("Model input: %d px, %s, %s, colours from %g to %g", spec.size,
+         spec.layout == PixelLayout::kPlanar ? "channel planes" : "interleaved",
+         spec.element == TensorElement::kFloat32 ? "float" : "8-bit", inputWriter_.range().lowest,
+         inputWriter_.range().highest);
     return true;
 }
 

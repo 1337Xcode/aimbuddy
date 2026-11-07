@@ -32,6 +32,12 @@ struct InputSpec {
     Quantization quantization;   ///< Only read for an integer tensor.
 };
 
+/// The real values the darkest and the brightest colour are given as.
+struct ColourRange {
+    float lowest = 0.0f;
+    float highest = 1.0f;
+};
+
 /// Bytes of one value of a tensor.
 int elementBytes(TensorElement element);
 
@@ -52,15 +58,15 @@ bool flexibleInputShape(const int* dims, int dimCount, int side, int resized[4])
 bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols);
 
 /**
- * Writes RGBA pictures into an input tensor, each channel value scaled to 0 to 1 as the models were
- * trained, then stored as the tensor stores it. The 256 values a channel can have are converted once,
+ * Writes RGBA pictures into an input tensor, each channel value scaled to the colour range the input stands for (0 to
+ * 1 as the models were trained, or the range an 8-bit input is quantized for), then stored as the tensor stores it. The 256 values a channel can have are converted once,
  * so a frame costs one table look-up per value.
  */
 class InputWriter {
 public:
     /**
-     * Prepares the tables for one input. False when an integer input has no usable scale, or when its range does
-     * not stand for 0 to 1 (a model that takes raw pixels, or -1 to 1), which this writer would fill wrongly.
+     * Prepares the tables for one input. False when an integer input has no usable scale, or when its range stands
+     * for none of 0 to 1, 0 to 255 and -1 to 1, which this writer would fill wrongly.
      */
     bool configure(const InputSpec& spec);
 
@@ -68,9 +74,11 @@ public:
     void write(const uint8_t* rgba, int stride, void* tensor) const;
 
     const InputSpec& spec() const { return spec_; }
+    const ColourRange& range() const { return range_; }
 
 private:
     InputSpec spec_;
+    ColourRange range_;
     float floats_[256] = {};
     int8_t signedBytes_[256] = {};
     uint8_t unsignedBytes_[256] = {};

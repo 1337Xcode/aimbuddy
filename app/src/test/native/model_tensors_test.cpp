@@ -148,16 +148,40 @@ TEST(integer_input_without_a_scale_is_refused) {
     CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, -0.5f, 0)));
 }
 
-TEST(integer_input_that_is_not_zero_to_one_is_refused) {
+TEST(integer_input_of_an_unknown_colour_range_is_refused) {
     InputWriter writer;
-    // Raw pixels, 0 to 255: the model scales them itself and would be given 0 or 1.
-    CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f, 0)));
-    // -1 to 1, as older quantized detectors take it.
-    CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f / 128, 128)));
     // Only up to 0.5: the brighter half of the colours could not be stored.
     CHECK(!writer.configure(specOf(PixelLayout::kPlanar, TensorElement::kUInt8, 1.0f / 510, 0)));
+    // 0 to 2.
+    CHECK(!writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kInt8, 2.0f / 255, -128)));
     // A step off at the top end is still 0 to 1.
     CHECK(writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kInt8, 1.0f / 256, -128)));
+    CHECK(writer.range().lowest == 0.0f && writer.range().highest == 1.0f);
+}
+
+TEST(raw_pixel_input_is_given_the_bytes_themselves) {
+    // A model that scales the pixels itself takes them from 0 to 255.
+    InputWriter writer;
+    CHECK(writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f, 0)));
+    CHECK(writer.range().lowest == 0.0f && writer.range().highest == 255.0f);
+    std::vector<uint8_t> tensor(12, 0);
+    writer.write(kPicture, kStride, tensor.data());
+    const int expected[] = {0, 255, 51, 102, 153, 204, 255, 0, 0, 1, 2, 3};
+    for (int i = 0; i < 12; ++i) {
+        CHECK(tensor[i] == expected[i]);
+    }
+}
+
+TEST(minus_one_to_one_input_is_given_colours_from_minus_one_to_one) {
+    // Older quantized detectors take -1 to 1: 128 is a mid grey, the darkest colour is 0, the brightest 255.
+    InputWriter writer;
+    CHECK(writer.configure(specOf(PixelLayout::kInterleaved, TensorElement::kUInt8, 1.0f / 128, 128)));
+    CHECK(writer.range().lowest == -1.0f && writer.range().highest == 1.0f);
+    std::vector<uint8_t> tensor(12, 0);
+    writer.write(kPicture, kStride, tensor.data());
+    CHECK(tensor[0] == 0);     // a red of 0
+    CHECK(tensor[1] == 255);   // a green of 255, 1.0 stored as 256 and kept in range
+    CHECK(tensor[2] == 51);    // 51 of 255 is -0.6, stored as 128 - 0.6 * 128 = 51.2
 }
 
 TEST(quantized_output_is_turned_back_into_real_values) {
