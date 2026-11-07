@@ -119,6 +119,27 @@ bool readInputShape(const int* dims, int dimCount, int* size, PixelLayout* layou
     return false;
 }
 
+bool flexibleInputShape(const int* dims, int dimCount, int side, int resized[4]) {
+    if (dims == nullptr || dimCount != 4 || dims[0] != 1 || side <= 0) {
+        return false;
+    }
+    if (dims[3] == kChannels && dims[1] == 1 && dims[2] == 1) {
+        resized[0] = 1;
+        resized[1] = side;
+        resized[2] = side;
+        resized[3] = kChannels;
+        return true;
+    }
+    if (dims[1] == kChannels && dims[2] == 1 && dims[3] == 1) {
+        resized[0] = 1;
+        resized[1] = kChannels;
+        resized[2] = side;
+        resized[3] = side;
+        return true;
+    }
+    return false;
+}
+
 bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols) {
     if (dims == nullptr || (dimCount != 2 && dimCount != 3) || (dimCount == 3 && dims[0] != 1)) {
         return false;

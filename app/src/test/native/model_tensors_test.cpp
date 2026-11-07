@@ -55,6 +55,26 @@ TEST(input_shape_refuses_what_the_region_cannot_fill) {
     CHECK(!readInputShape(noBatch, 3, &size, &layout));
 }
 
+TEST(an_input_with_an_open_size_is_given_the_chosen_side) {
+    int resized[4] = {0, 0, 0, 0};
+    const int nhwc[] = {1, 1, 1, 3};
+    CHECK(flexibleInputShape(nhwc, 4, 320, resized));
+    CHECK(resized[0] == 1 && resized[1] == 320 && resized[2] == 320 && resized[3] == 3);
+
+    const int nchw[] = {1, 3, 1, 1};
+    CHECK(flexibleInputShape(nchw, 4, 256, resized));
+    CHECK(resized[0] == 1 && resized[1] == 3 && resized[2] == 256 && resized[3] == 256);
+}
+
+TEST(an_input_of_a_fixed_size_is_left_as_it_is) {
+    int resized[4] = {0, 0, 0, 0};
+    const int fixed[] = {1, 320, 320, 3};
+    const int greyscale[] = {1, 1, 1, 1};
+    CHECK(!flexibleInputShape(fixed, 4, 320, resized));
+    CHECK(!flexibleInputShape(greyscale, 4, 320, resized));
+    CHECK(!flexibleInputShape(fixed, 3, 320, resized));
+}
+
 TEST(output_shape_is_read_as_rows_and_columns) {
     int rows = 0;
     int cols = 0;

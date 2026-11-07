@@ -45,6 +45,7 @@ bool bindAll(void* library, LiteRtApi& api) {
            bind(library, "TfLiteInterpreterOptionsSetErrorReporter", &api.optionsSetErrorReporter) &&
            bind(library, "TfLiteInterpreterCreate", &api.interpreterCreate) &&
            bind(library, "TfLiteInterpreterDelete", &api.interpreterDelete) &&
+           bind(library, "TfLiteInterpreterResizeInputTensor", &api.resizeInputTensor) &&
            bind(library, "TfLiteInterpreterAllocateTensors", &api.allocateTensors) &&
            bind(library, "TfLiteInterpreterInvoke", &api.invoke) &&
            bind(library, "TfLiteInterpreterGetInputTensorCount", &api.inputTensorCount) &&

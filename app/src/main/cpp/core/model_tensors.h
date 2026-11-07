@@ -41,6 +41,13 @@ int elementBytes(TensorElement element);
  */
 bool readInputShape(const int* dims, int dimCount, int* size, PixelLayout* layout);
 
+/**
+ * The shape to give a picture input whose height and width are left open, as models exported with a flexible size
+ * are (LiteRT reports those sides as 1 until the input is resized): [1, side, side, 3] or [1, 3, side, side], written
+ * to `resized`. False for an input whose size is fixed, or that is not one RGB picture.
+ */
+bool flexibleInputShape(const int* dims, int dimCount, int side, int resized[4]);
+
 /// Reads the shape of a detection output as rows by columns: [1, R, C] or [R, C]. False for any other shape.
 bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols);
 

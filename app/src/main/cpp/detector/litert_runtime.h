@@ -37,6 +37,7 @@ struct LiteRtApi {
     decltype(&TfLiteInterpreterOptionsSetErrorReporter) optionsSetErrorReporter;
     decltype(&TfLiteInterpreterCreate) interpreterCreate;
     decltype(&TfLiteInterpreterDelete) interpreterDelete;
+    decltype(&TfLiteInterpreterResizeInputTensor) resizeInputTensor;
     decltype(&TfLiteInterpreterAllocateTensors) allocateTensors;
     decltype(&TfLiteInterpreterInvoke) invoke;
     decltype(&TfLiteInterpreterGetInputTensorCount) inputTensorCount;

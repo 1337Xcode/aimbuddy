@@ -26,6 +26,10 @@ constexpr uint8_t kProbeGrey = 115;
 /// The most dimensions a picture input or a detection output has.
 constexpr int kMaxDims = 4;
 
+/// The input side of a model that leaves its size open and whose description names none. Such a model is usually a
+/// 640 px export; AimBuddy General runs at 256 px, and half of 640 keeps a phone's detection rate close to that.
+constexpr int kFlexibleInputSide = 320;
+
 /// How LiteRT stores a tensor's values, in the terms the picture writer and the output reader use. False for a type they do not handle.
 bool toElement(TfLiteType type, TensorElement* element) {
     switch (type) {
@@ -129,6 +133,7 @@ bool TfliteDetector::load(const ModelFiles& files, const ModelProfile& profile) 
         LOGE("LiteRT could not be opened, so a .tflite model cannot be used");
         return false;
     }
+    flexibleSide_ = profile.inputSize > 0 ? profile.inputSize : kFlexibleInputSide;
     model_ = api_->modelCreateFromFile(files.modelPath.c_str());
     if (model_ == nullptr) {
         LOGE("LiteRT %s cannot read %s as a model", api_->version(), files.modelPath.c_str());
@@ -190,7 +195,8 @@ bool TfliteDetector::build(Engine& engine, bool onGpu) {
     }
     engine.interpreter = api_->interpreterCreate(model_, options);
     api_->optionsDelete(options);   // the interpreter keeps what it needs of them
-    if (engine.interpreter == nullptr || api_->allocateTensors(engine.interpreter) != kTfLiteOk) {
+    if (engine.interpreter == nullptr || !sizeFlexibleInput(engine.interpreter) ||
+        api_->allocateTensors(engine.interpreter) != kTfLiteOk) {
         release(engine);
         return false;
     }
@@ -200,6 +206,25 @@ bool TfliteDetector::build(Engine& engine, bool onGpu) {
         release(engine);
         return false;
     }
+    return true;
+}
+
+bool TfliteDetector::sizeFlexibleInput(TfLiteInterpreter* interpreter) {
+    if (api_->inputTensorCount(interpreter) < 1) {
+        return true;   // readInput says what is wrong with it
+    }
+    int dims[kMaxDims];
+    int count = 0;
+    int resized[4];
+    if (!readDims(*api_, api_->inputTensor(interpreter, 0), dims, &count) ||
+        !flexibleInputShape(dims, count, flexibleSide_, resized)) {
+        return true;
+    }
+    if (api_->resizeInputTensor(interpreter, 0, resized, 4) != kTfLiteOk) {
+        LOGE("The model leaves its input size open, and LiteRT could not set it to %d px", flexibleSide_);
+        return false;
+    }
+    LOGI("The model leaves its input size open: it runs at %d px", flexibleSide_);
     return true;
 }
 

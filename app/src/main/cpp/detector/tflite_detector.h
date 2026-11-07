@@ -42,6 +42,8 @@ private:
 
     void unload();
     bool build(Engine& engine, bool onGpu);
+    /// Gives an input whose height and width the model leaves open the side flexibleSide_. False when that fails.
+    bool sizeFlexibleInput(TfLiteInterpreter* interpreter);
     void release(Engine& engine);
     /// Makes the CPU interpreter again on the calling thread, which must be bound to the fast cores already.
     void rebuildCpuOnFastCores();
@@ -68,6 +70,7 @@ private:
     Quantization outputQuantization_;
     int outputRows_ = 0;
     int outputCols_ = 0;
+    int flexibleSide_ = 0;             ///< The input side for a model whose input size is left open.
     std::vector<uint8_t> resized_;     ///< The region shrunk to the model's input size, when it is larger.
     std::vector<float> dequantized_;   ///< The answer of an integer model, as floats.
 };
