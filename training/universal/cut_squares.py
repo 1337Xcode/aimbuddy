@@ -33,8 +33,8 @@ from fusion import heads_in, people_in  # noqa: E402
 from hud import fixed_on_screen  # noqa: E402
 from own_character import (in_own_place, is_mostly_over, is_part_of, look_of, own_candidates,  # noqa: E402
                            usual_place)
-from sources import (GREY, PC_SETS, VIDEOS, grey_out_broadcast, has_heads, pc_pictures,  # noqa: E402
-                     read_names, read_pc_picture, video_frames)
+from sources import (FIRST_PERSON_GAMES, GREY, PC_SETS, VIDEOS, grey_out_broadcast, has_heads,  # noqa: E402
+                     pc_pictures, read_names, read_pc_picture, video_frames)
 
 OUTPUT_SIZE = 320
 SIDE_RANGE = (0.44, 0.78)       # square side as a share of the frame height
@@ -251,6 +251,7 @@ def frames_of(path, indices):
 def label_video(record, path):
     """Decides the labels of every cached frame of one video. Returns {frame index: Labels}."""
     width, height = record["size"]
+    first_person = record["game"] in FIRST_PERSON_GAMES
     cached = {f["index"]: f["boxes"] for f in record["frames"]}
     people, looks, placed = {}, [], []
     # first pass: everyone the teachers saw, and the look of everyone standing where the own character stands
@@ -260,6 +261,8 @@ def label_video(record, path):
         found = people_in(cached[index])
         flat = [is_flat_mark(frame, p.box) for p in found]
         people[index] = (found, flat)
+        if first_person:
+            continue
         for k, person in enumerate(found):
             if not flat[k] and (person.is_player() or person.own_votes) and in_own_place(person.box, width, height):
                 look = look_of(frame, person.box)
@@ -272,12 +275,13 @@ def label_video(record, path):
               if (index, k) not in own and (person.is_player() or person.is_unsure())]
     fixed = {key for key, decided in zip(others, fixed_on_screen([(i, people[i][0][k].box) for i, k in others],
                                                                   len(people)), strict=True) if decided}
-    return {index: frame_labels(index, found, flat, own, set(placed), fixed, usual, cached[index])
+    return {index: frame_labels(index, found, flat, own, set(placed), fixed, usual, cached[index], first_person)
             for index, (found, flat) in people.items()}
 
 
-def frame_labels(index, found, flat, own, placed, fixed, usual, boxes):
-    """Sorts the people of one frame into the own character, players, and what nobody can vouch for (grey)."""
+def frame_labels(index, found, flat, own, placed, fixed, usual, boxes, first_person=False):
+    """Sorts the people of one frame into the own character, players, and what nobody can vouch for (grey). A first
+    person game has no own character, so what the trained models call one there is judged like anyone else."""
     labels = Labels()
     own_here = [person.box for k, person in enumerate(found) if (index, k) in own]
     for k, person in enumerate(found):
@@ -290,7 +294,7 @@ def frame_labels(index, found, flat, own, placed, fixed, usual, boxes):
         elif not own_here and ((index, k) in placed or (usual is not None and centre_inside(person.box, usual))):
             # the own character is not seen, and this one stands where it stands: it may be the own character changed
             labels.grey.append(person.box)
-        elif person.own_votes >= 2 and (index, k) not in placed:
+        elif person.own_votes >= 2 and (index, k) not in placed and not first_person:
             labels.grey.append(person.box)
         elif person.is_unsure():
             labels.grey.append(person.box)

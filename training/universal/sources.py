@@ -36,7 +36,14 @@ VIDEOS = [
     ("pubgm", "highlight19", "train", 0.25, False),   # a phone recording, no broadcast overlay
     ("pubgm", "highlight9", "val", 0.25, True),
     ("pubgm", "highlight14", "val", 0.25, True),
-]
+] + [("standoff2", name, "train", 1.0, False) for name in
+     ("k_hwCeTVXP8", "emeoa_QZroA", "wPjFM0Go2Z8", "CHyb3DS1jRY", "oksS0xcYl6A", "aYgjawgUfZc", "IVXDyS6nwNY")] + [
+    ("standoff2", "0B1dCVXTnvk", "val", 1.0, False),
+]   # Standoff 2 full matches, one channel each; CtsUmxIVlV8, OTqbA0iI0Jk and HEzNRHWBZWo are kept for judging
+
+
+# Games seen in the first person: they show no own character, and its hands and gun are not people.
+FIRST_PERSON_GAMES = {"standoff2"}
 
 
 def grey_out_broadcast(frame):

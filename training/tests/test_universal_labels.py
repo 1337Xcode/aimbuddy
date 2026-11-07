@@ -179,6 +179,12 @@ class FrameLabelsTest(unittest.TestCase):
         labels = cut_squares.frame_labels(3, [self.beside], [False], set(), set(), {(3, 0)}, None, {})
         self.assertEqual(labels.grey, [self.beside.box])
 
+    def test_a_first_person_game_has_no_own_character_to_take_a_close_player_for(self):
+        third = cut_squares.frame_labels(4, [self.beside], [False], set(), set(), set(), None, {})
+        first = cut_squares.frame_labels(4, [self.beside], [False], set(), set(), set(), None, {}, first_person=True)
+        self.assertEqual(third.grey, [self.beside.box])
+        self.assertEqual(first.bodies, [self.beside.box])
+
 
 @unittest.skipUnless(HAS_OPENCV, "the universal pipeline needs opencv and numpy")
 class SquareTest(unittest.TestCase):
