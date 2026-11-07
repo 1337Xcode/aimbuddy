@@ -33,7 +33,7 @@ struct InputSpec {
 };
 
 /// The real values the darkest and the brightest colour are given as.
-struct ColourRange {
+struct InputValueRange {
     float lowest = 0.0f;
     float highest = 1.0f;
 };
@@ -74,11 +74,11 @@ public:
     void write(const uint8_t* rgba, int stride, void* tensor) const;
 
     const InputSpec& spec() const { return spec_; }
-    const ColourRange& range() const { return range_; }
+    const InputValueRange& range() const { return range_; }
 
 private:
     InputSpec spec_;
-    ColourRange range_;
+    InputValueRange range_;
     float floats_[256] = {};
     int8_t signedBytes_[256] = {};
     uint8_t unsignedBytes_[256] = {};

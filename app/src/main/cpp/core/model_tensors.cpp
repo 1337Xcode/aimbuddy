@@ -76,7 +76,7 @@ constexpr float kColourRanges[][2] = {{0.0f, 1.0f}, {0.0f, 255.0f}, {-1.0f, 1.0f
 
 /// The colour range that the lowest and highest value T can store stand for, if it is one of kColourRanges.
 template <typename T>
-bool colourRangeOf(const Quantization& quantization, ColourRange* range) {
+bool colourRangeOf(const Quantization& quantization, InputValueRange* range) {
     const float lowest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::min()) - quantization.zeroPoint);
     const float highest = quantization.scale * static_cast<float>(static_cast<int>(std::numeric_limits<T>::max()) - quantization.zeroPoint);
     const float tolerance = kRangeToleranceSteps * quantization.scale;
@@ -93,9 +93,9 @@ bool colourRangeOf(const Quantization& quantization, ColourRange* range) {
 /// The colour range an input is filled in. A float input gets 0 to 1, as the models were trained; an integer one
 /// gets the range its quantization stands for. False for an integer input without a usable scale, or whose range is
 /// none of those (only up to 0.5, say), which this writer would fill wrongly.
-bool colourRangeFor(TensorElement element, const Quantization& quantization, ColourRange* range) {
+bool colourRangeFor(TensorElement element, const Quantization& quantization, InputValueRange* range) {
     if (element == TensorElement::kFloat32) {
-        *range = ColourRange();
+        *range = InputValueRange();
         return true;
     }
     if (!(quantization.scale > 0.0f && std::isfinite(quantization.scale))) {
@@ -168,7 +168,7 @@ bool readOutputShape(const int* dims, int dimCount, int* rows, int* cols) {
 
 bool InputWriter::configure(const InputSpec& spec) {
     const bool integer = spec.element != TensorElement::kFloat32;
-    ColourRange range;
+    InputValueRange range;
     if (spec.size <= 0 || !colourRangeFor(spec.element, spec.quantization, &range)) {
         return false;
     }
