@@ -42,8 +42,17 @@ VIDEOS = [
 ]   # Standoff 2 full matches, one channel each; CtsUmxIVlV8, OTqbA0iI0Jk and HEzNRHWBZWo are kept for judging
 
 
-# Games seen in the first person: they show no own character, and its hands and gun are not people.
+# Games seen in the first person: they show no own character, and its hands and gun are not people. The PC sets are
+# all first person too. AimBuddy ships one model for first-person and one for third-person games.
 FIRST_PERSON_GAMES = {"standoff2"}
+
+
+def camera_of(square_name):
+    """'first' or 'third': the camera of the game a square was cut from, read from the name cut_squares.py gave it
+    (<game>_<video>_... for a video, pc_<set>_... for a PC set)."""
+    if square_name.startswith("pc_") or square_name.split("_", 1)[0] in FIRST_PERSON_GAMES:
+        return "first"
+    return "third"
 
 
 def grey_out_broadcast(frame):

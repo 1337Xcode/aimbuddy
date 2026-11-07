@@ -20,6 +20,7 @@ if HAS_OPENCV:
     import fusion  # noqa: E402
     import hud  # noqa: E402
     import own_character  # noqa: E402
+    import sources  # noqa: E402
 
 import dragondata  # noqa: E402
 
@@ -125,6 +126,15 @@ class GameTeacherTest(unittest.TestCase):
         self.assertEqual(people[0].box, [100, 100, 140, 200])
 
 
+@unittest.skipUnless(HAS_OPENCV, "the universal pipeline needs opencv and numpy")
+class SourcesTest(unittest.TestCase):
+    def test_squares_of_pc_sets_and_first_person_games_are_first_person(self):
+        self.assertEqual(sources.camera_of("pc_csgo-videogame_x_0"), "first")
+        self.assertEqual(sources.camera_of("standoff2_k_hwCeTVXP8_0001330_2"), "first")
+        self.assertEqual(sources.camera_of("freefire_5mJrCitRC_w_0000060_0"), "third")
+        self.assertEqual(sources.camera_of("pubgm_chunk_000_0000015_1"), "third")
+
+
 class DragonDataTest(unittest.TestCase):
     def test_a_polygon_becomes_the_box_round_it_and_a_box_stays_as_it_is(self):
         self.assertEqual(dragondata.box_line("1 0.2 0.3 0.4 0.3 0.4 0.7 0.2 0.7"),
@@ -184,6 +194,21 @@ class FrameLabelsTest(unittest.TestCase):
         first = cut_squares.frame_labels(4, [self.beside], [False], set(), set(), set(), None, {}, first_person=True)
         self.assertEqual(third.grey, [self.beside.box])
         self.assertEqual(first.bodies, [self.beside.box])
+
+    def test_the_camera_data_files_list_each_square_once_by_its_game(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            for split, names in (("train", ("pc_apex_1_0", "standoff2_v_0000060_0", "freefire_v_0000060_0")),
+                                 ("val", ("pubgm_v_0000030_1",))):
+                (out / "images" / split).mkdir(parents=True)
+                for name in names:
+                    (out / "images" / split / f"{name}.jpg").write_bytes(b"")
+            cut_squares.write_data_files(out)
+            self.assertEqual((out / "train_first.txt").read_text().split(),
+                             ["./images/train/pc_apex_1_0.jpg", "./images/train/standoff2_v_0000060_0.jpg"])
+            self.assertEqual((out / "train_third.txt").read_text().split(), ["./images/train/freefire_v_0000060_0.jpg"])
+            self.assertEqual((out / "val_first.txt").read_text(), "")
+            self.assertIn("train: train_third.txt", (out / "data_third.yaml").read_text())
 
 
 @unittest.skipUnless(HAS_OPENCV, "the universal pipeline needs opencv and numpy")

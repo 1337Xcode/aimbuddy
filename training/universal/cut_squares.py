@@ -15,7 +15,12 @@ Every source is brought to one form:
     players behind cover.
 Videos are split by video (sources.py); PC pictures keep their own train and validation splits.
 
+Besides data.yaml (every square), data_first.yaml and data_third.yaml list the squares of first-person and of
+third-person games, one set for each of AimBuddy's two models.
+
 Usage: cut_squares.py --cache <folder> --videos <folder> --pc <folder> --out <folder> [--only videos|pc|all]
+                      [--select <game or PC set> ...]
+--select builds only the videos of the named games and the named PC sets, to add a source to a set built before.
 """
 import argparse
 import collections
@@ -33,8 +38,8 @@ from fusion import heads_in, people_in  # noqa: E402
 from hud import fixed_on_screen  # noqa: E402
 from own_character import (in_own_place, is_mostly_over, is_part_of, look_of, own_candidates,  # noqa: E402
                            usual_place)
-from sources import (FIRST_PERSON_GAMES, GREY, PC_SETS, VIDEOS, grey_out_broadcast, has_heads,  # noqa: E402
-                     pc_pictures, read_names, read_pc_picture, video_frames)
+from sources import (FIRST_PERSON_GAMES, GREY, PC_SETS, VIDEOS, camera_of, grey_out_broadcast,  # noqa: E402
+                     has_heads, pc_pictures, read_names, read_pc_picture, video_frames)
 
 OUTPUT_SIZE = 320
 SIDE_RANGE = (0.44, 0.78)       # square side as a share of the frame height
@@ -315,9 +320,16 @@ def source_rng(seed, name):
     return random.Random(f"{seed}:{name}")
 
 
+def is_selected(args, name):
+    """True when a game or PC set is to be built: every one without --select, else the ones it names."""
+    return not args.select or name in args.select
+
+
 def build_videos(args, stats):
     """Cuts squares from every cached video."""
     for game, video, split, _, _ in VIDEOS:
+        if not is_selected(args, game):
+            continue
         cache = pathlib.Path(args.cache) / f"{game}_{video}.json"
         path = pathlib.Path(args.videos) / game / f"{video}.mp4"
         if not cache.is_file() or not path.is_file():
@@ -360,6 +372,8 @@ def build_pc(args, stats):
     """Cuts squares from the PC sets' training and validation pictures, with their own labels. Sets without heads take
     sunxds's heads inside a labelled body, from the cache label_frames.py wrote."""
     for folder, mapping in PC_SETS:
+        if not is_selected(args, folder):
+            continue
         root = pathlib.Path(args.pc)
         names = read_names(root / folder / "data.yaml")
         rng = source_rng(args.seed, f"pc_{folder}")
@@ -411,18 +425,32 @@ def main():
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--seed", type=int, default=20261030)
     parser.add_argument("--only", choices=("videos", "pc", "all"), default="all")
+    parser.add_argument("--select", nargs="+", default=[], help="games and PC set folders to build (default: all)")
     args = parser.parse_args()
     stats = {f"{split}_{kind}": 0 for split in ("train", "val") for kind in ("squares", "empty", "bodies", "own")}
     if args.only in ("videos", "all"):
         build_videos(args, stats)
     if args.only in ("pc", "all"):
         build_pc(args, stats)
-    root = pathlib.Path(args.out).resolve().as_posix()
-    names = "names:\n  0: body\n  1: head\n  2: self\n"
-    (pathlib.Path(args.out) / "data.yaml").write_text(f"path: {root}\ntrain: images/train\nval: images/val\n{names}",
-                                                      encoding="utf-8")
-    (pathlib.Path(args.out) / f"stats_{args.only}.json").write_text(json.dumps(stats, indent=1))
+    write_data_files(pathlib.Path(args.out))
+    tag = "_".join([args.only] + args.select)
+    (pathlib.Path(args.out) / f"stats_{tag}.json").write_text(json.dumps(stats, indent=1))
     print(stats)
+
+
+def write_data_files(out):
+    """Writes data.yaml for every square in the folder, and data_first.yaml and data_third.yaml with lists of the
+    squares of each camera, so squares built in several runs are all listed."""
+    root = out.resolve().as_posix()
+    names = "names:\n  0: body\n  1: head\n  2: self\n"
+    (out / "data.yaml").write_text(f"path: {root}\ntrain: images/train\nval: images/val\n{names}", encoding="utf-8")
+    for camera in ("first", "third"):
+        for split in ("train", "val"):
+            pictures = sorted(p.name for p in (out / "images" / split).glob("*.jpg") if camera_of(p.stem) == camera)
+            (out / f"{split}_{camera}.txt").write_text("".join(f"./images/{split}/{name}\n" for name in pictures),
+                                                       encoding="utf-8")
+        (out / f"data_{camera}.yaml").write_text(
+            f"path: {root}\ntrain: train_{camera}.txt\nval: val_{camera}.txt\n{names}", encoding="utf-8")
 
 
 if __name__ == "__main__":
