@@ -9,8 +9,12 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 ### Added
 - TFLite models. A `.tflite` export of a YOLO detector can be imported under Models, Import, as one file, beside the NCNN `.param` and `.bin` pair. It runs through LiteRT 1.4.2: on the CPU through XNNPACK, or through LiteRT's GPU delegate (OpenCL, half precision) when that is more than 20% faster on the phone and gives the CPU's answer to a test picture, the rule the Vulkan path already follows. The app reads from the model whether it takes its picture pixel by pixel (Ultralytics before 8.4.83) or as colour planes (8.4.83 and later), and whether its tensors hold floats or 8-bit integers. On the emulator, with a photo of two people on screen, two YOLO26n exports from Ultralytics' own Android releases, one of each layout, found both people, with scores within 0.04 of Ultralytics' own LiteRT inference on the frame the app read. `docs/Training.md` says how to export a model that keeps up with a game.
 
+- More `.tflite` models run. One exported with an open input size (Ultralytics' `dynamic=True`) runs at the size its description gives, or 320 px. One with 8-bit inputs for raw pixels (0 to 255) or for -1 to 1 is given colours in that range; only inputs for 0 to 1 were accepted before.
+- `training/universal/` builds the next models: one for first-person shooters (the four PC sets and Standoff 2) and one for third-person shooters (Free Fire and PUBG Mobile). Standoff 2 comes from DragonData-4, screenshots labelled by people and split by day, and from match recordings labelled by the teacher models with a Standoff 2 teacher of its own, trained on DragonData, which decides who is a player there. `docs/Training.md` says how to build them.
+
 ### Changed
 - The APK is 2.9 MB larger (10.6 MB), which is LiteRT's runtime and GPU delegate. The app opens them only when a `.tflite` model is loaded, so with an NCNN model they are never loaded and detection runs as before.
+- The model is released when the assist stops. Every Start loads it again, so the copy held after a Stop only took memory while the game ran.
 
 ## [0.3.5-beta.3] - 2026-11-05
 
