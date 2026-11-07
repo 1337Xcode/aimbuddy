@@ -370,6 +370,8 @@ python src\check_model_contract.py --weights outputs\runs\detect\train\weights\b
 
 The model the store offers is built by the scripts in `training/universal/`, not by the per-game pipeline above. It is trained on Free Fire and PUBG Mobile footage and on four PC shooters, and it has a class for the player's own character, which the app drops, so a third-person game does not get the player boxed.
 
+The next version splits it in two, built by the same scripts: a model for first-person shooters (the four PC sets and Standoff 2) and one for third-person shooters (Free Fire and PUBG Mobile). The two kinds of game look different where it matters: a third-person game shows the player's own character in the middle of the screen, a first-person game shows the player's hands and gun. The two models have not been trained yet; this section says how they are built.
+
 ### Sources
 
 | Source | What | Labels | License |
@@ -377,8 +379,10 @@ The model the store offers is built by the scripts in `training/universal/`, not
 | [amer224/freefire-realgame-ds](https://huggingface.co/datasets/amer224/freefire-realgame-ds), `videos/` | 17 Free Fire videos, third person | Teacher labels, below | None stated |
 | [oreo2000/pubgm-videos](https://huggingface.co/datasets/oreo2000/pubgm-videos) | 30 PUBG Mobile videos, mostly tournament broadcasts | Teacher labels, below | None stated |
 | Roboflow 100 through [LibreYOLO](https://huggingface.co/LibreYOLO): `csgo-videogame`, `apex-videogame`, `halo-infinite-angel-videogame`, `farcry6-videogame` | PC screenshots | Human labels | CC BY 4.0 |
+| [DragonCheat-AI/DragonData-4](https://huggingface.co/datasets/DragonCheat-AI/DragonData-4) ([Roboflow](https://universe.roboflow.com/units-workspace/dragondata-v4)) | Standoff 2 screenshots, first person | Human labels | MIT on Hugging Face, CC BY 4.0 on Roboflow |
+| 11 Standoff 2 full matches from YouTube, one channel each (ids in `training/universal/sources.py`) | Standoff 2 phone and tablet recordings, first person | Teacher labels, below | None stated |
 
-The video uploaders state no license, so check that you may use the videos before you build from them. Videos are split by video, never by frame: 14 Free Fire and 24 PUBG Mobile videos are built (5 of them for validation only), and the 3 and 6 that the model is judged on are never read by the build. The PC sets keep their own train and validation splits; their test splits are only scored.
+The video uploaders state no license, so check that you may use the videos before you build from them. Videos are split by video, never by frame: 14 Free Fire and 24 PUBG Mobile videos are built (5 of them for validation only), and the 3 and 6 that the model is judged on are never read by the build. The PC sets keep their own train and validation splits; their test splits are only scored. Of the Standoff 2 matches, 7 are built, 1 for validation only, and 3 are kept for judging. DragonData-4 was split picture by picture by its publisher, so pictures seconds apart sit on both sides; `training/universal/dragondata.py` puts whole days in one split instead (three days for testing, one for validation) and keeps only the unaltered pictures of the test days.
 
 ### One form for every source
 
@@ -403,11 +407,17 @@ Nobody labelled the videos, so four models label them. `training/universal/label
 - AimBuddy General 2, and sunxds fine-tuned on General 2's squares, on the whole frame at its width with flips and three scales. They find mobile players that the first two score low.
 - A person is a player when sunxds scores it 0.25 or more, when both fine-tuned models score it 0.45 or more, when one of them scores it 0.40 and the COCO model 0.35, or when sunxds scores it 0.12 and the COCO model 0.35 or a fine-tuned model 0.40. Less than that, down to sunxds 0.12, COCO 0.35 or a fine-tuned model 0.25, makes it unsure (grey). A head of 0.25 or more from sunxds or a fine-tuned model inside a player is its head; the PC sets without heads take sunxds's heads of 0.30 or more inside a labelled body.
 
+**A game's own teacher.** On Standoff 2 the four teachers above call too much a player. On the three held-out matches, 1,554 views judged by eye, they called 81 of 102 players a player, but also 16 pieces of the player's own gun or hands, 15 other things (graffiti, plants, lamp posts) and 4 dead bodies. So a game can have a teacher of its own, trained on people's labels of that game: `training/universal/train_game_teacher.py` fine-tunes the COCO YOLO26s on DragonData's training days at 768 px, and `label_frames.py --game-teacher standoff2=<its best.pt>` runs it on that game's videos only, and adds its boxes to videos already in the cache. In such a game a person is a player when the game's teacher scores it 0.50, or 0.25 with the four teachers agreeing. The four teachers alone make a person unsure at most, and what they are only unsure of is left as background, which is where the own gun and hands belong.
+
+**First-person games** (`FIRST_PERSON_GAMES` in `sources.py`) have no own character, so the rules below are skipped there: a close player standing in front is a player, not someone who may be the own character.
+
 The own character is decided per video (`own_character.py`). A third-person camera follows the player, so the own character stands low in the middle of the frame (its box reaches below 0.72 of the height, is at least 0.18 of it tall, and has its centre between 0.26 and 0.68 of the width) and looks the same from frame to frame. A person there is the own character when at least 6 other frames of the video, and 4% of those with someone there, show the same look: the colours of the upper and the lower half of the figure. A teammate the camera follows after the player is knocked out counts as the own character too, since the app never has to aim at the figure the camera follows. A person there who looks different is a player when the frame also shows the own character apart from them, and unsure when it does not, since it may be the own character greyed out after a knock-down or half hidden by a kill banner. A box that is a piece of the own character (what a kill banner leaves in view, a second box on it, or its gun or a flame round its hand lying within its box, which the teachers took for a person in a tenth of the players labelled in two Free Fire videos) is left to the own character's label, and one lying mostly over it is unsure. General 2's teacher took every tall person low in the middle for the own character, and on the judged views General 2 called 7 close players the own character.
 
 ### Training and export
 
 YOLO26n from its COCO weights, 320 px, 60 epochs, AdamW at 0.0014 with a cosine schedule (`training/universal/train.py`). MuSGD at 0.01, which Ultralytics chooses for YOLO26 by itself at this many steps, made the loss climb once the warm-up ended, so the optimizer is set. `training/universal/export.py` writes `model.param`, `model.bin` and `model.json` at the input size the store ships.
+
+`cut_squares.py` also writes `data_first.yaml` and `data_third.yaml`, which list the squares of first-person games (the PC sets and Standoff 2) and of third-person games (Free Fire and PUBG Mobile). Each of the two models is trained on its own list with the same settings, and `export.py` takes `first` or `third` to give it its store title and description.
 
 ### How it was judged
 
@@ -443,14 +453,20 @@ hf download amer224/freefire-realgame-ds --repo-type dataset --include "videos/*
 Move-Item sources\freefire-ds\videos sources\freefire
 hf download oreo2000/pubgm-videos --repo-type dataset --include "*.mp4" --local-dir sources\pubgm
 hf download LibreYOLO/csgo-videogame --repo-type dataset --local-dir sources\pc\csgo-videogame
-python training\universal\label_frames.py --videos sources --pc sources\pc --cache training\outputs\universal\cache --sunxds sunxds_0.8.0.pt --coco yolo11x.pt --gen2 general2.pt --sunft sunxds-ft.pt
+hf download DragonCheat-AI/DragonData-4 --repo-type dataset --local-dir sources\dragondata
+Expand-Archive sources\dragondata\DragonData-4.zip sources\dragondata
+python training\universal\dragondata.py sources\dragondata\DragonData-4 sources\pc\standoff2-dragondata
+python training\universal\train_game_teacher.py sources\pc\standoff2-dragondata training\outputs\universal\standoff2-teacher
+python training\universal\label_frames.py --videos sources --pc sources\pc --cache training\outputs\universal\cache --sunxds sunxds_0.8.0.pt --coco yolo11x.pt --gen2 general2.pt --sunft sunxds-ft.pt --game-teacher standoff2=training\outputs\universal\standoff2-teacher\run\weights\best.pt
 python training\universal\cut_squares.py --cache training\outputs\universal\cache --videos sources --pc sources\pc --out training\outputs\universal\dataset
-python training\universal\train.py --base yolo26n.pt --data training\outputs\universal\dataset\data.yaml
-python training\universal\export.py training\outputs\universal\runs\universal\weights\best.pt training\outputs\universal\export 256 <model version>
-python training\universal\score_pc_tests.py sources\pc training\outputs\universal\export
+python training\universal\train.py --base yolo26n.pt --data training\outputs\universal\dataset\data_first.yaml --name first
+python training\universal\train.py --base yolo26n.pt --data training\outputs\universal\dataset\data_third.yaml --name third
+python training\universal\export.py training\outputs\universal\runs\first\weights\best.pt training\outputs\universal\export-first 256 <model version> first
+python training\universal\export.py training\outputs\universal\runs\third\weights\best.pt training\outputs\universal\export-third 256 <model version> third
+python training\universal\score_pc_tests.py sources\pc training\outputs\universal\export-first
 ```
 
-Download the other three PC sets the same way. `label_frames.py` reads `<videos>\freefire\<id>.mp4` and `<videos>\pubgm\<name>.mp4`, named as on Hugging Face. `yolo26n.pt` and `yolo11x.pt` are the Ultralytics COCO weights, `sunxds_0.8.0.pt` is in the `models` folder of sunone_aimbot, `general2.pt` is General 2's training output, and `sunxds-ft.pt` is `train.py --base sunxds_0.8.0.pt` on General 2's set. Running the teachers is the slow step, a few hours on a laptop graphics card. It skips what its cache already holds, so it can be stopped and run again, and `cut_squares.py` can be changed and rerun without running the teachers again.
+Download the other three PC sets the same way. `label_frames.py` reads `<videos>\freefire\<id>.mp4` and `<videos>\pubgm\<name>.mp4`, named as on Hugging Face, and `<videos>\standoff2\<YouTube id>.mp4`; the YouTube recordings state no license, so download them only where you may. `yolo26n.pt` and `yolo11x.pt` are the Ultralytics COCO weights, `sunxds_0.8.0.pt` is in the `models` folder of sunone_aimbot, `general2.pt` is General 2's training output, and `sunxds-ft.pt` is `train.py --base sunxds_0.8.0.pt` on General 2's set. Running the teachers is the slow step, a few hours on a laptop graphics card. It skips what its cache already holds, so it can be stopped and run again, and `cut_squares.py` can be changed and rerun without running the teachers again.
 
 ## Common Issues
 
