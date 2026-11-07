@@ -518,6 +518,9 @@ JNIEXPORT void JNICALL Java_com_aimbuddy_DebugHooks_enableAssist(JNIEnv* /* env 
 JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_stop(JNIEnv* /* env */, jclass /* clazz */) {
     g_aimLoop.stop();
     g_pipeline.stop();
+    // Every Start loads the model again, so the one this run used would only hold memory while the game runs.
+    g_pipeline.unloadModel();
+    g_modelLoaded = false;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_isRunning(JNIEnv* /* env */, jclass /* clazz */) {
