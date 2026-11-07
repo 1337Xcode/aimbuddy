@@ -36,6 +36,13 @@ constexpr int64_t kCoastGaps = 7;      // in halves: 3.5 gaps
 /// Results come as often as they have until this many gaps have passed without one; only then is the detector quiet.
 constexpr int64_t kQuietAfterGaps = 2;
 
+/// A box is the detector boxing a group as one (see keepGroupsSeen()) when at least this share of each of two or more
+/// targets lies inside it, and it is at least this many times the area of each of them.
+constexpr float kGroupMemberInside = 0.7f;
+constexpr float kGroupBoxGrowth = 1.5f;
+/// A box that overlaps a target other than those inside it at least this much (intersection over union) is that target's.
+constexpr float kGroupOwnerOverlap = 0.5f;
+
 float square(float v) { return v * v; }
 
 float nsToSeconds(int64_t ns) { return static_cast<float>(ns) / kNanosecondsPerSecond; }
@@ -364,13 +371,17 @@ void Tracker::update(const Detection* detections, int count, int64_t captureNs, 
         predictTrack(tracks_[i], captureNs);
     }
 
+    // A box round a group of targets keeps them seen and is used for nothing else.
+    bool detectionUsed[kMaxDetections] = {};
+    keepGroupsSeen(detections, count, detectionUsed);
+
     // Sort usable detections into strong ones (can start and keep targets) and weak ones (keep only).
     int strong[kMaxDetections];
     int weak[kMaxDetections];
     int strongCount = 0;
     int weakCount = 0;
     for (int d = 0; d < count; ++d) {
-        if (!isUsable(detections[d])) {
+        if (!isUsable(detections[d]) || detectionUsed[d]) {
             continue;
         }
         if (detections[d].score >= config_.highScore) {
@@ -380,7 +391,6 @@ void Tracker::update(const Detection* detections, int count, int64_t captureNs, 
         }
     }
 
-    bool detectionUsed[kMaxDetections] = {};
     Match matches[kMaxTracks];
     auto applyMatches = [&](int matchCount) {
         for (int m = 0; m < matchCount; ++m) {
@@ -512,6 +522,57 @@ void Tracker::update(const Detection* detections, int count, int64_t captureNs, 
     takeOverJumpedTargets(captureNs);
     removeDuplicates();
     lastUpdateNs_ = captureNs;
+}
+
+/**
+ * A detector that boxes people standing close together often draws one box round two of them in some frames (its overlap
+ * suppression keeps the bigger box). Matched to one of them, that box dragged its centre to the middle of the group and
+ * doubled its width, and the other one was missed: the aim wandered between them and the boxes jumped. Such a box says
+ * the targets in it are still there, not where each of them is, so every target inside it is kept as seen where its
+ * own path puts it, and the box moves none of them and starts no new one. Only targets confirmed and seen within the
+ * hold time count, so a box round a target and a stale prediction is matched as usual.
+ */
+void Tracker::keepGroupsSeen(const Detection* detections, int count, bool* detectionUsed) {
+    for (int d = 0; d < count; ++d) {
+        const Detection& box = detections[d];
+        if (!isUsable(box)) {
+            continue;
+        }
+        const float centerX = box.x + box.width * 0.5f;
+        const float centerY = box.y + box.height * 0.5f;
+        int members[kMaxTracks];
+        int memberCount = 0;
+        bool someoneOwnsIt = false;   // a target as big as the box: an enemy close by, in front of others further off
+        for (int i = 0; i < trackCount_; ++i) {
+            const Track& track = tracks_[i];
+            if (track.phase == TrackPhase::kTentative || track.missNs > holdNs() || track.classId != box.classId) {
+                continue;
+            }
+            const Overlap shared = measureOverlap(track.x.position, track.y.position, track.width.value, track.height.value,
+                                                  centerX, centerY, box.width, box.height);
+            const bool inside = shared.areaA > 0.0f && shared.intersection >= kGroupMemberInside * shared.areaA;
+            if (inside && shared.areaB >= kGroupBoxGrowth * shared.areaA) {
+                members[memberCount++] = i;
+            } else if (shared.overUnion() >= kGroupOwnerOverlap) {
+                someoneOwnsIt = true;
+            }
+        }
+        if (memberCount < 2 || someoneOwnsIt) {
+            continue;
+        }
+        detectionUsed[d] = true;
+        for (int m = 0; m < memberCount; ++m) {
+            Track& track = tracks_[members[m]];
+            track.matchedNow = true;
+            track.phase = TrackPhase::kTracked;
+            track.lastSeenNs = track.stateNs;
+            track.seenX = track.x.position;
+            track.seenY = track.y.position;
+            track.missNs = 0;
+            track.unobservedNs = 0;
+            track.missesInARow = 0;
+        }
+    }
 }
 
 /// A target drawn for the first time in this update that first showed in the update right after another target of its

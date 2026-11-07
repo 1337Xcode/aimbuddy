@@ -263,6 +263,7 @@ private:
                   int detectionCount, const Detection* detections, const MatchGate& gate,
                   Match* matches) const;
     void projectTrack(const Track& track, int64_t atNs, TrackView& view) const;
+    void keepGroupsSeen(const Detection* detections, int count, bool* detectionUsed);
     void removeDuplicates();
     void removeTrackAt(int index);
     void rememberLost(const Track& track, int64_t nowNs);

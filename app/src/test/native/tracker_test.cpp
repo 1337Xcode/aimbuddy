@@ -185,6 +185,62 @@ TEST(tracker_keeps_identities_when_two_targets_cross) {
     CHECK(movingLeft.id == rightId);
 }
 
+TEST(tracker_keeps_two_people_apart_when_the_detector_boxes_them_as_one) {
+    // Two players stand 50 px apart. In every other result the detector draws one box round both of them. That box must
+    // move neither of them, widen neither, and start no third target.
+    Tracker tracker;
+    int64_t t = 0;
+    for (int frame = 0; frame < 10; ++frame, t += 33 * kMs) {
+        Detection d[2] = {box(400.0f, 300.0f, 60.0f, 180.0f), box(450.0f, 300.0f, 60.0f, 180.0f)};
+        tracker.update(d, 2, t, nullptr);
+    }
+    TrackView left, right;
+    CHECK(viewNear(tracker, t, 400.0f, 300.0f, &left));
+    CHECK(viewNear(tracker, t, 450.0f, 300.0f, &right));
+    for (int frame = 0; frame < 30; ++frame, t += 33 * kMs) {
+        if (frame % 2 == 0) {
+            Detection both = box(425.0f, 300.0f, 110.0f, 180.0f);
+            tracker.update(&both, 1, t, nullptr);
+        } else {
+            Detection d[2] = {box(400.0f, 300.0f, 60.0f, 180.0f), box(450.0f, 300.0f, 60.0f, 180.0f)};
+            tracker.update(d, 2, t, nullptr);
+        }
+        TrackView nowLeft, nowRight;
+        CHECK(viewNear(tracker, t, 400.0f, 300.0f, &nowLeft));
+        CHECK(viewNear(tracker, t, 450.0f, 300.0f, &nowRight));
+        CHECK(nowLeft.id == left.id);
+        CHECK(nowRight.id == right.id);
+        CHECK_NEAR(nowLeft.centerX, 400.0f, 3.0f);
+        CHECK_NEAR(nowRight.centerX, 450.0f, 3.0f);
+        CHECK_NEAR(nowLeft.width, 60.0f, 6.0f);
+        CHECK(drawnCount(tracker, t) == 2);
+    }
+}
+
+TEST(tracker_follows_a_near_player_in_front_of_two_far_ones) {
+    // A player close to the camera stands in front of two far ones, whose small boxes lie inside the near one's. The near
+    // player's box is its own, not a box round a group: it keeps following the near player as it walks.
+    Tracker tracker;
+    int64_t t = 0;
+    float nearX = 425.0f;
+    for (int frame = 0; frame < 30; ++frame, t += 33 * kMs) {
+        if (frame >= 10) {
+            nearX += 3.0f;
+        }
+        Detection d[3] = {box(nearX, 300.0f, 130.0f, 360.0f), box(400.0f, 280.0f, 30.0f, 90.0f), box(450.0f, 280.0f, 30.0f, 90.0f)};
+        tracker.update(d, 3, t, nullptr);
+        if (frame < 3) {
+            continue;   // not confirmed yet
+        }
+        TrackView nearPlayer;
+        CHECK(viewNear(tracker, t, nearX, 300.0f, &nearPlayer));
+        CHECK(nearPlayer.phase == TrackPhase::kTracked);
+        CHECK_NEAR(nearPlayer.centerX, nearX, 4.0f);
+        CHECK_NEAR(nearPlayer.height, 360.0f, 20.0f);
+        CHECK(drawnCount(tracker, t) == 3);
+    }
+}
+
 TEST(tracker_ignores_a_single_frame_false_alarm) {
     Tracker tracker;
     Detection d = box(300.0f, 300.0f, 50.0f, 150.0f, 0.62f);

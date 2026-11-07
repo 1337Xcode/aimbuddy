@@ -17,6 +17,9 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 - The APK is 2.9 MB larger (10.6 MB), which is LiteRT's runtime and GPU delegate. The app opens them only when a `.tflite` model is loaded, so with an NCNN model they are never loaded and detection runs as before.
 - The model is released when the assist stops. Every Start loads it again, so the copy held after a Stop only took memory while the game ran.
 
+### Fixed
+- Enemies standing close together no longer pull the aim back and forth. A detector often draws one box round two people who overlap; that box was taken for one of them, which moved its target to the middle of the pair and doubled its width, so the box jumped and the aim followed. Such a box now keeps every target inside it where it was, and moves none of them. In the simulated game, with two enemies 50 px apart boxed as one in 30% of the frames, some head was under the crosshair 100%, 100% and 99.5% of the time at 60, 30 and 15 detections a second, instead of 96.2%, 94.6% and 85.3%, and the assist turned the camera 0, 1 and 11 px a second instead of 29, 26 and 31. The gameplay clips score the same as before.
+
 ## [0.3.5-beta.3] - 2026-11-05
 
 AimBuddy General 2 in the model store, targets followed more closely through turns, cover and missed frames, touch access through Shizuku 13.6.0 on Tecno, Infinix and itel phones, and fixes for screen stretching apps.
