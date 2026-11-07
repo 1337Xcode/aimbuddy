@@ -4,7 +4,7 @@
 //  - how the aim controller copes with a camera it was not told about, in the simulated game the tests use;
 //  - how closely the aim follows targets that strafe, run and stop, on phones that detect 60, 30 and 15 times a second;
 //  - how the aim copes with targets that go behind cover, show only in part, or are seen in some frames only.
-// Build and run: sh app/src/test/native/bench/run.sh [runs], or with "camera", "follow" or "cover" for one simulation only.
+// Build and run: sh app/src/test/native/bench/run.sh [runs], or with "camera", "follow", "cover" or "crowd" for one simulation only.
 // The timings are for this machine's processor, not a phone's, and the simulation is not a real game.
 #include <algorithm>
 #include <chrono>
@@ -688,10 +688,114 @@ void benchCover() {
     }
 }
 
+/// The same path moved `dx` pixels sideways: an enemy standing or running beside another.
+simulation::SimulatedGame::Path besides(simulation::SimulatedGame::Path path, float dx) {
+    return [=](float t, float* x, float* y) {
+        path(t, x, y);
+        *x += dx;
+    };
+}
+
+/// How the aim did among enemies close together: how often a second the lock went from one to another, the share of the
+/// time some head was under the crosshair, and how far a second the assist turned the camera once it had reached them.
+struct CrowdScore {
+    double switchesPerS = 0.0;
+    double onHeadShare = 0.0;
+    double travelPxPerS = 0.0;
+};
+
+/// Runs one case of enemies close together with each seed and averages what the aim did.
+CrowdScore runCrowdCase(const simulation::SimulatedGame::Truth& truth, const simulation::SimulatedGame::Path& path) {
+    CrowdScore total;
+    for (const uint32_t seed : kSeeds) {
+        simulation::SimulatedGame game(truth, simulation::baseSettings(), path, seed);
+        int switches = 0;
+        int samples = 0;
+        int onHead = 0;
+        int lastLock = -1;
+        float travelFrom = -1.0f;
+        game.run(kFollowRunS, [&](float t, float errorX, float errorY) {
+            const int lock = game.controller().lockedTrackId();
+            if (t < kFollowFromS) {
+                lastLock = lock;
+                return;
+            }
+            if (travelFrom < 0.0f) {
+                travelFrom = game.cameraTravelByAssistPx();
+            }
+            if (lock >= 0 && lastLock >= 0 && lock != lastLock) {
+                ++switches;
+            }
+            if (lock >= 0) {
+                lastLock = lock;
+            }
+            const float crosshairX = 1200.0f;
+            const float crosshairY = 540.0f;
+            bool head = false;
+            for (const auto& point : game.headsOnScreen(t)) {
+                head = head || std::hypot(point.first - crosshairX, point.second - crosshairY) <= kHeadRadiusPx;
+            }
+            (void)errorX;
+            (void)errorY;
+            ++samples;
+            onHead += head ? 1 : 0;
+        });
+        const double seconds = kFollowRunS - kFollowFromS;
+        total.switchesPerS += switches / seconds;
+        total.onHeadShare += static_cast<double>(onHead) / std::max(samples, 1);
+        total.travelPxPerS += (game.cameraTravelByAssistPx() - travelFrom) / seconds;
+    }
+    const double seeds = static_cast<double>(std::size(kSeeds));
+    total.switchesPerS /= seeds;
+    total.onHeadShare /= seeds;
+    total.travelPxPerS /= seeds;
+    return total;
+}
+
+/// The aim controller among enemies standing or moving close together, whose boxes the detector sometimes merges.
+void benchCrowd() {
+    struct Phone {
+        const char* name;
+        simulation::SimulatedGame::Truth truth;
+    };
+    const Phone phones[] = {
+        {"60/s, 20 ms", phoneDetecting(16, 20, 2.0f)},
+        {"30/s, 40 ms", phoneDetecting(33, 40, 2.5f)},
+        {"15/s, 70 ms", phoneDetecting(66, 70, 3.0f)},
+    };
+    struct Case {
+        const char* name;
+        simulation::SimulatedGame::Path path;
+        std::vector<simulation::SimulatedGame::Path> others;
+        float mergeRate;
+    };
+    const auto standing = [](float x) { return simulation::stationary(x, -40.0f); };
+    const Case cases[] = {
+        {"two standing 80 px apart", standing(110.0f), {standing(190.0f)}, 0.0f},
+        {"two standing 50 px apart, merged 30%", standing(125.0f), {standing(175.0f)}, 0.3f},
+        {"two shoulder to shoulder, merged 60%", standing(135.0f), {standing(170.0f)}, 0.6f},
+        {"three standing 60 px apart, merged 30%", standing(90.0f), {standing(150.0f), standing(210.0f)}, 0.3f},
+        {"one runs past one standing, merged 30%", standing(150.0f), {besides(running(300.0f), -400.0f)}, 0.3f},
+        {"two strafing 70 px apart, merged 30%", strafingLegs(300.0f, 0.6f), {besides(strafingLegs(300.0f, 0.6f), 70.0f)}, 0.3f},
+    };
+    std::printf("\n| enemies | detections | lock switches | some head under the crosshair | camera turned by the assist |\n");
+    std::printf("| --- | --- | ---: | ---: | ---: |\n");
+    for (const Case& c : cases) {
+        for (const Phone& phone : phones) {
+            simulation::SimulatedGame::Truth truth = phone.truth;
+            truth.others = c.others;
+            truth.mergeRate = c.mergeRate;
+            const CrowdScore score = runCrowdCase(truth, c.path);
+            std::printf("| %-40s | %-11s | %4.2f/s | %5.1f%% | %5.0f px/s |\n", c.name, phone.name, score.switchesPerS,
+                        100.0 * score.onHeadShare, score.travelPxPerS);
+        }
+    }
+}
+
 }  // namespace
 
-/// Runs the step timings, then the simulated cameras, the moving targets and the targets behind cover. With "camera",
-/// "follow" or "cover" only that simulation runs.
+/// Runs the step timings, then the simulated cameras, the moving targets, the targets behind cover and the enemies
+/// close together. With "camera", "follow", "cover" or "crowd" only that simulation runs.
 int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "camera") {
         benchUnknownCamera();
@@ -703,6 +807,10 @@ int main(int argc, char** argv) {
     }
     if (argc > 1 && std::string(argv[1]) == "cover") {
         benchCover();
+        return 0;
+    }
+    if (argc > 1 && std::string(argv[1]) == "crowd") {
+        benchCrowd();
         return 0;
     }
     const int runs = argc > 1 ? std::atoi(argv[1]) : 200;
@@ -718,5 +826,6 @@ int main(int argc, char** argv) {
     benchUnknownCamera();
     benchMovingTargets();
     benchCover();
+    benchCrowd();
     return 0;
 }

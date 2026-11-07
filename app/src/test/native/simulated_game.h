@@ -56,6 +56,8 @@ public:
         float deadbandPx = 8.0f;       ///< Errors seen below this are left alone.
     };
 
+    using Path = std::function<void(float tSeconds, float* x, float* y)>;
+
     struct Truth {
         float gain = 1.5f;            ///< How much the scene really slides per finger pixel.
         float delayS = 0.05f;         ///< How long the game really takes to show a finger move.
@@ -79,6 +81,8 @@ public:
         int cameraJitterMs = 0;                                  ///< Such frames come this much earlier or later than their period says, evenly.
         float unreadableRate = 0.0f;                             ///< Share of those measurements that could not be made (reported with no quality).
         Human human{};                                           ///< A person steering the camera by hand towards the target.
+        std::vector<Path> others{};                              ///< More enemies, each the path of its head in the world, seen like the target.
+        float mergeRate = 0.0f;                                  ///< Chance, per frame, that two enemies whose boxes overlap come as one box round both.
     };
 
     /// What the controller believes before it has measured anything.
@@ -87,8 +91,6 @@ public:
         float delayS = 0.05f;
         bool learn = true;
     };
-
-    using Path = std::function<void(float tSeconds, float* x, float* y)>;
 
     SimulatedGame(Truth truth, AimSettings settings, Path path, uint32_t seed = 1)
         : SimulatedGame(truth, settings, std::move(path), seed, Belief()) {}
@@ -213,6 +215,19 @@ public:
         result.ghostShare = samples > 0 ? static_cast<double>(ghosts) / samples : 0.0;
         result.jitterRms = jitterSamples > 0 ? std::sqrt(jitterSquares / jitterSamples) : 0.0;
         return result;
+    }
+
+    /// Where every enemy's head is on the screen now, `seconds` into the run: the target first, then the others.
+    std::vector<std::pair<float, float>> headsOnScreen(float seconds) const {
+        std::vector<std::pair<float, float>> heads;
+        float x, y;
+        aimPointOnScreen(&x, &y);
+        heads.emplace_back(x, y);
+        for (const Path& other : truth_.others) {
+            other(seconds, &x, &y);
+            heads.emplace_back(x + cameraX_, y + cameraY_);
+        }
+        return heads;
     }
 
     /// Replaces the tracker's tuning, to judge a setting.
@@ -348,8 +363,48 @@ private:
         if (present) {
             frame.detections.push_back(target);
         }
+        addOthers(&frame, seconds);
         addFalseBoxes(&frame);
         queue_.push_back(std::move(frame));
+    }
+
+    /// Adds the other enemies the detector sees in this frame, then merges overlapping enemies the way a detector's
+    /// overlap suppression sometimes does: one box round both. The target is the first box when it is in the frame.
+    void addOthers(PendingFrame* frame, float seconds) {
+        if (truth_.others.empty()) {
+            return;
+        }
+        for (const Path& other : truth_.others) {
+            float headX, headY;
+            other(seconds, &headX, &headY);
+            if (random_.uniform() <= truth_.dropoutRate) {
+                continue;
+            }
+            const float centerX = headX + cameraX_ + static_cast<float>(random_.gaussian(truth_.noisePx));
+            const float centerY = headY + cameraY_ + 0.4f * kBoxHeight + static_cast<float>(random_.gaussian(truth_.noisePx));
+            const float width = kBoxWidth * static_cast<float>(1.0 + random_.gaussian(0.04));
+            const float height = kBoxHeight * static_cast<float>(1.0 + random_.gaussian(0.04));
+            frame->detections.push_back(makeFalseDetection(centerX, centerY, width, height, 0.5f, 0.95f));
+        }
+        std::vector<Detection>& boxes = frame->detections;
+        for (size_t i = 0; i < boxes.size(); ++i) {
+            for (size_t j = i + 1; j < boxes.size(); ++j) {
+                const bool overlap = boxes[i].x < boxes[j].x + boxes[j].width && boxes[j].x < boxes[i].x + boxes[i].width &&
+                                     boxes[i].y < boxes[j].y + boxes[j].height && boxes[j].y < boxes[i].y + boxes[i].height;
+                if (!overlap || random_.uniform() >= truth_.mergeRate) {
+                    continue;
+                }
+                const float left = std::min(boxes[i].x, boxes[j].x);
+                const float top = std::min(boxes[i].y, boxes[j].y);
+                boxes[i].width = std::max(boxes[i].x + boxes[i].width, boxes[j].x + boxes[j].width) - left;
+                boxes[i].height = std::max(boxes[i].y + boxes[i].height, boxes[j].y + boxes[j].height) - top;
+                boxes[i].x = left;
+                boxes[i].y = top;
+                boxes[i].score = std::max(boxes[i].score, boxes[j].score);
+                boxes.erase(boxes.begin() + static_cast<std::ptrdiff_t>(j));
+                --j;
+            }
+        }
     }
 
     /// Adds what the detector reports in this frame that is not the target.
