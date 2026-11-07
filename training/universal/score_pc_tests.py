@@ -1,6 +1,7 @@
-"""Scores exported models on the human-labelled test splits of the four PC sets, in the app's view.
+"""Scores exported models on the human-labelled test splits of the four PC sets and the Standoff 2 screenshots, in the
+app's view.
 
-Each test picture is put back to 16:9 (the sets were stretched to 640 x 640), and the app's square is cut round its
+Each test picture is put back to 16:9 (the sets were stretched to a square), and the app's square is cut round its
 centre and at two places beside it, 0.6 of the picture height on a side. The model sees the square as the app feeds
 it (bilinear resize to its input, RGB, 0..1) and its output is decoded as the app decodes it: for each anchor its best
 class, a minimum score, then per-class merging of boxes that overlap by more than 0.5; classes whose role is ignore
@@ -25,6 +26,7 @@ SETS = {
     "apex": ("apex-videogame", {0}),                      # avatar
     "halo": ("halo-infinite-angel-videogame", {0, 2}),    # enemy, friendly
     "farcry6": ("farcry6-videogame", {0, 9}),             # assassin, person
+    "standoff2": ("standoff2-dragondata", {0, 1}),        # ct, tr; test days only (dragondata.py)
 }
 SQUARE = 0.6
 SHIFTS = (0.0, -0.25, 0.25)   # square centre, as a share of the picture width from its middle

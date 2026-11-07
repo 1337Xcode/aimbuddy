@@ -55,6 +55,7 @@ PC_SETS = [
     ("apex-videogame", {"avatar": 0, "object": None}),
     ("halo-infinite-angel-videogame", {"enemy": 0, "friendly": 0, "enemy-head": 1, "friendly-head": 1}),
     ("farcry6-videogame", {"person": 0, "assassin": 0}),
+    ("standoff2-dragondata", {"ct": 0, "tr": 0}),   # Standoff 2 screenshots, split by day (dragondata.py)
 ]
 PC_SPLITS = {"train": "train", "valid": "val"}   # the sets' own test pictures are kept for judging
 

@@ -21,6 +21,8 @@ if HAS_OPENCV:
     import hud  # noqa: E402
     import own_character  # noqa: E402
 
+import dragondata  # noqa: E402
+
 
 def figure(top_bgr, bottom_bgr):
     """A 200 x 200 picture of a figure at [60, 20, 140, 180]: one colour above its middle, another below."""
@@ -89,6 +91,22 @@ class TeacherEvidenceTest(unittest.TestCase):
     def test_both_trained_models_calling_it_the_own_character_are_two_votes(self):
         people = fusion.people_in({"gen2": [[100, 100, 140, 200, 0.70, 2]], "sunft": [[101, 100, 140, 201, 0.60, 2]]})
         self.assertEqual(people[0].own_votes, 2)
+
+
+class DragonDataTest(unittest.TestCase):
+    def test_a_polygon_becomes_the_box_round_it_and_a_box_stays_as_it_is(self):
+        self.assertEqual(dragondata.box_line("1 0.2 0.3 0.4 0.3 0.4 0.7 0.2 0.7"),
+                         "1 0.300000 0.500000 0.200000 0.400000")
+        self.assertEqual(dragondata.box_line("0 0.5 0.5 0.1 0.2"), "0 0.5 0.5 0.1 0.2")
+
+    def test_whole_days_go_to_one_split_and_altered_copies_of_test_days_are_left_out(self):
+        test_day = Path("screenshot_2026-09-13_14-12-46_png.rf.abc.jpg")
+        valid_day = Path("screenshot_2026-09-20_19-02-05_png.rf.abc.jpg")
+        train_day = Path("screenshot_2026-09-08_18-28-01_png.rf.abc.jpg")
+        self.assertIsNone(dragondata.split_of("train", test_day))
+        self.assertEqual(dragondata.split_of("valid", test_day), "test")
+        self.assertEqual(dragondata.split_of("test", valid_day), "valid")
+        self.assertEqual(dragondata.split_of("test", train_day), "train")
 
 
 @unittest.skipUnless(HAS_OPENCV, "the universal pipeline needs opencv and numpy")
