@@ -7,6 +7,9 @@ Dates are in ISO-8601 (YYYY-MM-DD).
 ## [Unreleased]
 
 ### Added
+- TensorFlow Lite models alongside the NCNN ones. The store offers YOLO26n Pose and Valorant 256 YOLO26n INT8, and Import now takes a standalone `.tflite` file (including one renamed to `.bin`) or a ZIP holding one supported model beside an optional settings JSON, checked for unsafe paths, duplicates and size limits. The TFLite runner tries a GPU delegate, then NNAPI, then falls back to XNNPACK on the CPU. Single-output detectors and EdgeFirst YOLO11 smart COCO models with six split outputs are supported; pose outputs read 17 COCO keypoints and aim through the midpoint of two confident eyes, then the nose, then the shoulders.
+- A second, independently installable copy of the app. The `parallel` flavor gets its own applicationId, its own settings and models, and the label "AimBuddy Parallel", so it installs beside the regular build without replacing it. CI keeps publishing only the `primary` flavor.
+- Touch compatibility (Settings), for games that stop reacting to touch while AimBuddy runs. No full-screen window stays over the game: only the small button does, and the window is attached only while the menu is open.
 - The line to the nearest target can start at the top or the bottom of the screen instead of the crosshair (Visuals, Line starts at). From an edge it runs to the side of the box that faces it.
 - `training/universal/`, the scripts that build AimBuddy General 2: they cut squares from gameplay video and PC screenshots the way the app cuts them, label the videos with two teacher models, train, export to NCNN and score the result on the PC sets' test pictures. Six tests in `training/tests` hold the labelling rules: where a third-person game draws the player, and which broadcast squares show a face card.
 - The benchmark times one more step of a frame, decoding a three-class model's output: about 5 µs on a laptop processor, where running the model takes about 8 ms.

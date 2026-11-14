@@ -300,7 +300,7 @@ The export writes its files to `training/outputs/export/` and leaves the app alo
 
 ### Using the model
 
-- **On your own phone.** Copy `model.param` and `model.bin` to the phone and pick them in the app under Models, Import.
+- **On your own phone.** Copy `model.param` and `model.bin` to the phone and pick them under Models, Import, or put them in a ZIP and choose that. Include `model.json` beside the pair in the ZIP to carry over `roles`, `inputSize` and `endToEnd`; the JSON is optional for older exports.
 - **For everyone.** Put the three files in a folder `model/<id>/`, fill in the title, description and author in `model.json`, raise its `version` whenever the files change, run `python model/index.py` and open a pull request. [model/README.md](../model/README.md) has the details. The weights must be yours to share under a license the project can redistribute.
 
 Path format note:

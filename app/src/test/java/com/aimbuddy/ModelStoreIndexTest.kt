@@ -40,10 +40,31 @@ class ModelStoreIndexTest {
         assertEquals("general", model.id)
         assertEquals("Model general", model.title)
         assertEquals(1, model.version)
-        assertEquals("$baseUrl/general/model.param", model.param.url)
-        assertEquals("$baseUrl/general/model.bin", model.bin.url)
+        assertEquals("$baseUrl/general/model.param", model.param!!.url)
+        assertEquals("$baseUrl/general/model.bin", model.bin!!.url)
         assertEquals(3L * 1024, model.totalSizeBytes)
         assertNull(model.icon)
+    }
+
+    @Test
+    fun readsATFLiteModelWithoutRequiringAnNcnnPair() {
+        val pose = entry("pose").apply {
+            remove("param")
+            remove("bin")
+            put("tflite", file("pose/model.tflite"))
+        }
+        val model = ModelStoreRepository.parseIndex(index(pose), baseUrl).single()
+        assertEquals(ModelFormat.TFLITE, model.format)
+        assertNull(model.param)
+        assertNull(model.bin)
+        assertEquals("$baseUrl/pose/model.tflite", model.tflite!!.url)
+    }
+
+    @Test
+    fun rejectsMixedOrMissingModelFormats() {
+        val mixed = entry("mixed").put("tflite", file("mixed/model.tflite"))
+        val missing = entry("missing").apply { remove("bin") }
+        assertEquals(emptyList<String>(), idsIn(index(mixed, missing)))
     }
 
     @Test

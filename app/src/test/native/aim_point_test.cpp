@@ -63,6 +63,20 @@ TEST(aim_point_ignores_a_head_that_belongs_to_someone_else) {
     CHECK_NEAR(chooseAimPoint(target, &tooLow, AimZone::kHead).y, 320.0, 1e-3);
 }
 
+TEST(verified_pose_point_precedes_a_box_estimate) {
+    TrackView target = body(500, 400, 60, 200);
+    target.hasAimPoint = true;
+    target.aimX = 503;
+    target.aimY = 317;
+    const AimPoint aim = chooseAimPoint(target, nullptr, AimZone::kHead);
+    CHECK_NEAR(aim.x, 503.0, 1e-3);
+    CHECK_NEAR(aim.y, 317.0, 1e-3);
+    target.hasAimPoint = false;
+    target.aimX = 0;
+    target.aimY = 0;
+    CHECK_NEAR(chooseAimPoint(target, nullptr, AimZone::kHead).y, 320.0, 1e-3);
+}
+
 TEST(aim_point_handles_degenerate_boxes) {
     const TrackView sliver = body(100, 100, 0.0f, 50.0f);   // zero width must not divide by zero
     const AimPoint aim = chooseAimPoint(sliver, nullptr, AimZone::kHead);

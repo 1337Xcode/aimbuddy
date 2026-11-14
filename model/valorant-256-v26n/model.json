@@ -1,0 +1,10 @@
+{
+  "title": "Valorant 256 YOLO26n INT8",
+  "description": "Small game-specific body and head detector. INT8, 256-pixel input. Accuracy and latency require device testing.",
+  "author": "xiangsu1145",
+  "version": 1,
+  "roles": ["body", "head"],
+  "inputSize": 256,
+  "endToEnd": false,
+  "normalizedCoordinates": true
+}

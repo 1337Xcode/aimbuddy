@@ -84,17 +84,45 @@ object NativeBridge {
         roles: String?,
         endToEnd: Boolean,
         inputSize: Int,
+        normalizedCoordinates: Boolean?,
     ): Boolean
 
     /**
-     * Whether a pair of files can be used as a detection model: it is loaded and run once on a blank picture.
-     * Slow enough (a moment on a phone) to be called off the main thread. For a pair the player imports, so that one the
-     * detector cannot read is refused then and not at the next Start.
+     * Whether a pair of files can be used as a detection model: it is loaded and run once on a blank picture using
+     * the same profile that will be used when the assist starts. Slow enough (a moment on a phone) to be called off
+     * the main thread. A model the detector cannot read is refused then and not at the next Start.
      */
     @JvmStatic
-    external fun canReadModel(paramPath: String, binPath: String): Boolean
+    external fun canReadModel(
+        paramPath: String,
+        binPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean
 
-    /** True when the player has chosen to find targets by a colour, which needs no model. */
+    /** Loads the model into native C++, keeping its interpreter and all inference buffers there. */
+    @JvmStatic
+    external fun loadTFLiteModel(
+        modelPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean
+
+    /** Probes the model on a blank image. Returns null on success, otherwise a specific rejection reason. */
+    @JvmStatic
+    external fun canReadTFLiteModel(
+        modelPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): String?
+
+    /** True when colour detection can run without a model (chosen and a colour is already learned). */
     @JvmStatic
     external fun usesColourDetection(): Boolean
 

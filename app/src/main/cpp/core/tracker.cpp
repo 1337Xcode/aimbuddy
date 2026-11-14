@@ -253,6 +253,13 @@ void Tracker::correctTrack(Track& track, const Detection& detection) const {
     track.seenVelocityY = track.y.velocity;
 
     track.score = track.hits == 0 ? detection.score : 0.6f * track.score + 0.4f * detection.score;
+    // A low-confidence keypoint is never stored as (0, 0). When no anatomical point was verified,
+    // explicitly fall back to the tracked box's bounded estimate.
+    track.hasAimPoint = detection.hasAimPoint && std::isfinite(detection.aimX) && std::isfinite(detection.aimY) &&
+                        detection.aimX >= detection.x && detection.aimX <= detection.x + detection.width &&
+                        detection.aimY >= detection.y && detection.aimY <= detection.y + detection.height;
+    track.aimX = track.hasAimPoint ? detection.aimX : 0.0f;
+    track.aimY = track.hasAimPoint ? detection.aimY : 0.0f;
     track.hits += 1;
     track.lastSeenNs = track.stateNs;
     track.seenX = centerX;
@@ -330,7 +337,7 @@ int Tracker::matchPass(const int* trackIndices, int trackCount, const int* detec
     if (trackCount == 0 || detectionCount == 0) {
         return 0;
     }
-    float cost[kMaxTracks * kMaxDetections];
+    float cost[kMaxTracks * kMaxDetections] = {};
     for (int t = 0; t < trackCount; ++t) {
         for (int d = 0; d < detectionCount; ++d) {
             cost[t * detectionCount + d] =
@@ -757,6 +764,9 @@ void Tracker::projectTrack(const Track& track, int64_t atNs, TrackView& view) co
     view.velocityX = velocityX;
     view.velocityY = velocityY;
     view.velocitySigma = std::sqrt(0.5f * (track.x.pVelocity + track.y.pVelocity));
+    view.hasAimPoint = track.hasAimPoint;
+    view.aimX = track.aimX + (view.centerX - track.x.position);
+    view.aimY = track.aimY + (view.centerY - track.y.position);
     view.score = track.score;
     view.phase = track.phase;
     view.hits = track.hits;

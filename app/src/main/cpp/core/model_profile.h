@@ -21,6 +21,8 @@ enum class OutputLayout : unsigned char {
     kChannelsFirst,  ///< (4 + classes) rows by anchors columns: the raw Ultralytics export.
     kRowsFirst,      ///< Anchors rows by (4 + classes) columns: the same data transposed.
     kEndToEnd,       ///< N rows of [x1, y1, x2, y2, score, class]: an export with built-in NMS.
+    kPose,           ///< Raw anchors: centre box, person score, and 17 COCO (x, y, confidence) triples.
+    kPoseEndToEnd,   ///< NMS-free: corner box, score, class, then 17 COCO keypoint triples.
 };
 
 /**
@@ -33,6 +35,7 @@ struct ModelProfile {
     int declaredClassCount = 0;               ///< Classes the description lists; 0 means unknown.
     bool endToEndOutput = false;              ///< The model emits final detections (no NMS needed).
     int inputSize = 0;                        ///< Width and height of the network input; 0 means work it out.
+    int normalizedCoordinates = -1;           ///< -1 infer, 0 pixels, 1 fractions; official pose defaults to pixels.
 
     /// Role of a class id; classes the description does not list are ignored.
     ClassRole roleOf(int classId) const {

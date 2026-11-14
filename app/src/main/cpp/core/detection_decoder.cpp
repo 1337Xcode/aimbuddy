@@ -19,6 +19,45 @@ constexpr float kMinBoxSidePx = 2.0f;
 /// Coordinates at or below this, over the whole tensor, mean the model outputs fractions.
 constexpr float kNormalizedCoordinateLimit = 2.0f;
 
+/// Pose layout is determined by the contract, never by whether a blank probe emitted a large box.
+bool isPoseShape(int rows, int cols) {
+    return (rows == kPoseChannels && cols >= 100) ||
+           (cols == kPoseChannels && rows >= 100);
+}
+
+bool isPoseChannelsFirst(int rows, int /* cols */) { return rows == kPoseChannels; }
+
+bool isPoseResultShape(int rows, int cols) { return cols == kPoseResultColumns && rows != kPoseChannels; }
+
+bool isFinalDetectionShape(int rows, int cols) { return cols == 6 && rows == 300; }
+
+bool looksLikeFinalDetections(const float* data, int rows, int cols) {
+    if (!isFinalDetectionShape(rows, cols)) return false;
+    bool scored = false;
+    for (int i = 0; i < rows; ++i) {
+        const float* row = data + i * cols;
+        const float score = row[4];
+        const float classId = row[5];
+        if (!(score >= 0.0f && score <= 1.0f) || !(classId >= 0.0f && classId < kMaxModelClasses) ||
+            std::floor(classId) != classId || !std::isfinite(row[2]) || !std::isfinite(row[3])) {
+            return false;
+        }
+        if (score == 0.0f && row[0] == 0.0f && row[1] == 0.0f && row[2] == 0.0f && row[3] == 0.0f) continue;
+        // Raw YOLO rows store a centre and size, not corners. Seeing one row with right < centre
+        // or bottom < centre rules that layout out. An all-zero or identical-coordinate warm-up
+        // cannot distinguish them; a model.json with endToEnd=true covers that unusual export.
+        if (!(row[2] >= row[0] && row[3] >= row[1])) return false;
+        scored |= score > 0.0f;
+    }
+    return scored;
+}
+
+constexpr int kLeftEye = 1;
+constexpr int kRightEye = 2;
+constexpr int kNose = 0;
+constexpr int kLeftShoulder = 5;
+constexpr int kRightShoulder = 6;
+
 /// Reads element (row, col) of a row-major tensor.
 float at(const float* data, int cols, int row, int col) { return data[row * cols + col]; }
 
@@ -196,31 +235,147 @@ bool coveredByIgnored(const ModelBox& body, CandidateList& ignored, float overla
 
 }  // namespace
 
-bool inferDecodeSpec(const float* data, int rows, int cols, bool endToEnd, DecodeSpec* spec) {
+namespace {
+
+/// Maps one pose value without clamping it: a point outside its box must be rejected, not moved onto its edge.
+bool validPosePoint(float x, float y, float score, const ModelBox& box, float threshold) {
+    return std::isfinite(x) && std::isfinite(y) && std::isfinite(score) && score >= threshold &&
+           x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+}
+
+/// Reads eyes, then nose, then shoulders. A missing or corrupt keypoint never defaults to (0, 0).
+void choosePoseAim(const float* data, int rows, int cols, int anchor, int keypointStart,
+                   bool endToEnd, float coordinateScale, const ModelBox& box, float threshold, ModelBox* out) {
+    auto point = [=](int keypoint, float* x, float* y, float* score) {
+        const int channel = keypointStart + keypoint * 3;
+        auto read = [=](int offset) {
+            return endToEnd ? at(data, cols, anchor, channel + offset)
+                            : (isPoseChannelsFirst(rows, cols) ? at(data, cols, channel + offset, anchor)
+                                                              : at(data, cols, anchor, channel + offset));
+        };
+        *x = read(0) * coordinateScale;
+        *y = read(1) * coordinateScale;
+        *score = read(2);
+    };
+    float x1, y1, s1, x2, y2, s2;
+    point(kLeftEye, &x1, &y1, &s1);
+    point(kRightEye, &x2, &y2, &s2);
+    if (validPosePoint(x1, y1, s1, box, threshold) && validPosePoint(x2, y2, s2, box, threshold)) {
+        out->aimX = (x1 + x2) * 0.5f;
+        out->aimY = (y1 + y2) * 0.5f;
+        out->hasAimPoint = true;
+        return;
+    }
+    point(kNose, &x1, &y1, &s1);
+    if (validPosePoint(x1, y1, s1, box, threshold)) {
+        out->aimX = x1;
+        out->aimY = y1;
+        out->hasAimPoint = true;
+        return;
+    }
+    point(kLeftShoulder, &x1, &y1, &s1);
+    point(kRightShoulder, &x2, &y2, &s2);
+    if (validPosePoint(x1, y1, s1, box, threshold) && validPosePoint(x2, y2, s2, box, threshold)) {
+        const float height = box.bottom - box.top;
+        const float x = (x1 + x2) * 0.5f;
+        const float y = (y1 + y2) * 0.5f - height * 0.08f;
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+            out->aimX = x;
+            out->aimY = y;
+            out->hasAimPoint = true;
+        }
+    }
+}
+
+void collectPoses(const float* data, int rows, int cols, const DecodeSpec& spec,
+                  const DecodeParams& params, CandidateList& list) {
+    const bool endToEnd = spec.layout == OutputLayout::kPoseEndToEnd;
+    const bool channelsFirst = !endToEnd && isPoseChannelsFirst(rows, cols);
+    const int anchors = channelsFirst ? cols : rows;
+    const int keypointStart = endToEnd ? 6 : 5;
+    const float scale = spec.normalized ? static_cast<float>(params.modelSize) : 1.0f;
+    auto value = [=](int anchor, int channel) {
+        return channelsFirst ? at(data, cols, channel, anchor) : at(data, cols, anchor, channel);
+    };
+    for (int i = 0; i < anchors; ++i) {
+        const float score = value(i, 4);
+        if (!(score >= params.minScore)) continue;
+        ModelBox box;
+        if (endToEnd) {
+            const float left = value(i, 0) * scale;
+            const float top = value(i, 1) * scale;
+            const float right = value(i, 2) * scale;
+            const float bottom = value(i, 3) * scale;
+            if (!makeCandidate((left + right) * 0.5f, (top + bottom) * 0.5f, right - left, bottom - top,
+                               score, 0, 1.0f, params.modelSize, &box)) continue;
+        } else {
+            const float cx = value(i, 0) * scale;
+            const float cy = value(i, 1) * scale;
+            const float w = value(i, 2) * scale;
+            const float h = value(i, 3) * scale;
+            if (!makeCandidate(cx, cy, w, h, score, 0, 1.0f, params.modelSize, &box)) continue;
+        }
+        choosePoseAim(data, rows, cols, i, keypointStart, endToEnd, scale, box, params.keypointScore, &box);
+        list.add(box);
+    }
+}
+
+}  // namespace
+
+bool inferDecodeSpec(const float* data, int rows, int cols, bool endToEnd,
+                     int normalizedCoordinates, DecodeSpec* spec) {
     if (data == nullptr || spec == nullptr || rows <= 0 || cols <= 0) {
         return false;
     }
-    if (endToEnd) {
-        if (cols < 6) {
-            return false;
-        }
-        spec->layout = OutputLayout::kEndToEnd;
-        spec->classCount = 0;  // unknown from the shape; the profile decides which classes matter
-    } else if (rows < cols) {
-        if (rows < 5) {
-            return false;
-        }
-        spec->layout = OutputLayout::kChannelsFirst;
-        spec->classCount = rows - 4;
+    if (isPoseResultShape(rows, cols)) {
+        spec->layout = OutputLayout::kPoseEndToEnd;
+        spec->classCount = 1;
+    } else if (isPoseShape(rows, cols)) {
+        if (endToEnd) return false;
+        spec->layout = OutputLayout::kPose;
+        spec->classCount = 1;
     } else {
-        if (cols < 5) {
-            return false;
+        if (endToEnd || looksLikeFinalDetections(data, rows, cols)) {
+            if (endToEnd && cols < 6) return false;
+            spec->layout = OutputLayout::kEndToEnd;
+            spec->classCount = 0;  // unknown from the shape; the profile decides which classes matter
+        } else if (rows < cols) {
+            if (rows < 5) return false;
+            spec->layout = OutputLayout::kChannelsFirst;
+            spec->classCount = rows - 4;
+        } else {
+            if (cols < 5) return false;
+            spec->layout = OutputLayout::kRowsFirst;
+            spec->classCount = cols - 4;
         }
-        spec->layout = OutputLayout::kRowsFirst;
-        spec->classCount = cols - 4;
     }
-    spec->normalized = largestCoordinate(data, rows, cols, spec->layout) <= kNormalizedCoordinateLimit;
+    const OutputLayout boxLayout = spec->layout == OutputLayout::kChannelsFirst ||
+                                           (spec->layout == OutputLayout::kPose && isPoseChannelsFirst(rows, cols))
+                                       ? OutputLayout::kChannelsFirst
+                                       : OutputLayout::kRowsFirst;
+    // Official COCO pose emits model pixels. A custom normalized raw export must declare it:
+    // a blank probe contains no usable coordinates, so it must not make the next frame look normalized.
+    if (normalizedCoordinates >= 0) {
+        spec->normalized = normalizedCoordinates == 1;
+    } else if (spec->layout == OutputLayout::kPose || spec->layout == OutputLayout::kPoseEndToEnd) {
+        spec->normalized = false;
+    } else {
+        spec->normalized = largestCoordinate(data, rows, cols, boxLayout) <= kNormalizedCoordinateLimit;
+    }
     return true;
+}
+
+ModelProfile profileWithDefaultRoles(const ModelProfile& profile, const DecodeSpec& spec) {
+    if (profile.declaredClassCount != 0) return profile;
+    const int classCount = spec.layout == OutputLayout::kEndToEnd ||
+                                   spec.layout == OutputLayout::kPose ||
+                                   spec.layout == OutputLayout::kPoseEndToEnd
+                               ? 1 : spec.classCount;
+    ModelProfile result = ModelProfile::defaultsFor(classCount);
+    result.endToEndOutput = profile.endToEndOutput;
+    result.inputSize = profile.inputSize;
+    result.normalizedCoordinates = profile.normalizedCoordinates;
+    return result;
 }
 
 int inferInputSize(int anchors) {
@@ -245,7 +400,9 @@ int decodeDetections(const float* data, int rows, int cols, const DecodeSpec& sp
 
     CandidateList candidates;
     CandidateList ignored;
-    if (spec.layout == OutputLayout::kEndToEnd) {
+    if (spec.layout == OutputLayout::kPose || spec.layout == OutputLayout::kPoseEndToEnd) {
+        collectPoses(data, rows, cols, spec, params, candidates);
+    } else if (spec.layout == OutputLayout::kEndToEnd) {
         collectEndToEnd(data, rows, cols, spec, params, profile, candidates, ignored);
     } else {
         collectAnchors(data, rows, cols, spec, params, profile, candidates, ignored);
@@ -262,7 +419,7 @@ int decodeDetections(const float* data, int rows, int cols, const DecodeSpec& sp
             break;
         }
         bool duplicate = false;
-        if (spec.layout != OutputLayout::kEndToEnd) {
+        if (spec.layout != OutputLayout::kEndToEnd && spec.layout != OutputLayout::kPoseEndToEnd) {
             for (int k = 0; k < written && !duplicate; ++k) {
                 duplicate = out[k].classId == candidate.classId && cornerIou(out[k], candidate) > params.nmsIou;
             }
@@ -293,6 +450,9 @@ Detection mapToScreen(const ModelBox& box, const RoiRect& roi, const CaptureGeom
     detection.score = box.score;
     detection.classId = box.classId;
     detection.clipFlags = box.clipFlags;
+    detection.hasAimPoint = box.hasAimPoint;
+    detection.aimX = box.aimX * scale + offsetX;
+    detection.aimY = box.aimY * scale + offsetY;
     return detection;
 }
 

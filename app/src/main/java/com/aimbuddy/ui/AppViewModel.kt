@@ -11,9 +11,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aimbuddy.BuildConfig
 import com.aimbuddy.InstalledModel
+import com.aimbuddy.InvalidModelArchiveException
 import com.aimbuddy.ModelCatalog
+import com.aimbuddy.ModelFormat
+import com.aimbuddy.ModelProfileSpec
 import com.aimbuddy.ModelSource
 import com.aimbuddy.ModelStoreRepository
+import com.aimbuddy.ModelZipImporter
 import com.aimbuddy.NativeBridge
 import com.aimbuddy.Project
 import com.aimbuddy.AssistState
@@ -51,12 +55,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONException
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** An imported pair of files that the detector could not read as a model. */
-private class UnreadableModelException : IllegalStateException("The detector cannot read that pair of files as a model")
+private class UnreadableModelException(
+    message: String = "The detector cannot read that model",
+    val tfliteDetail: String? = null,
+) : IllegalStateException(message)
 
 /** A short message for the player, shown once. */
 data class UiMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())
@@ -497,9 +508,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         title = model.title,
                         description = model.description,
                         source = ModelSource.STORE,
-                        paramPath = files.param.absolutePath,
-                        binPath = files.bin.absolutePath,
-                        totalSizeBytes = files.param.length() + files.bin.length(),
+                        paramPath = files.param?.absolutePath.orEmpty(),
+                        binPath = files.bin?.absolutePath.orEmpty(),
+                        format = model.format,
+                        tflitePath = files.tflite?.absolutePath,
+                        totalSizeBytes = (files.param?.length() ?: 0L) + (files.bin?.length() ?: 0L) +
+                            (files.tflite?.length() ?: 0L),
                         version = model.version,
                     )
                 }
@@ -524,10 +538,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Remembers the `.param` file the player picked, until the matching `.bin` file arrives. */
-    fun onParamPicked(uri: Uri) {
+    /** Imports a TFLite/ZIP model, or remembers the `.param` file until its matching `.bin` is picked. */
+    fun onModelFilePicked(uri: Uri): Boolean {
+        val name = displayName(uri)
+        val mimeType = context.contentResolver.getType(uri)?.lowercase(Locale.ROOT)
+        if (name.endsWith(".zip", ignoreCase = true) ||
+            mimeType == "application/zip" ||
+            mimeType == "application/x-zip-compressed"
+        ) {
+            importZip(uri, name)
+            return true
+        }
+        val looksLikeTFLiteByName = name.endsWith(".tflite", ignoreCase = true)
+        val looksLikeRenamedTFLite = name.endsWith(".bin", ignoreCase = true) && hasTFLiteHeader(uri)
+        if (looksLikeTFLiteByName || looksLikeRenamedTFLite) {
+            val importName = if (looksLikeRenamedTFLite) {
+                "${name.substringBeforeLast('.', name)}.tflite"
+            } else {
+                name
+            }
+            importTFLite(uri, importName)
+            return true
+        }
         pendingParam = uri
-        pendingName = displayName(uri).substringBeforeLast('.', "model")
+        pendingName = name.substringBeforeLast('.', "model")
+        return false
     }
 
     /** Copies the picked `.param` and `.bin` into the app's storage and makes the pair the model in use. */
@@ -543,33 +578,226 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val binFile = File(dir, "$id.bin")
                 runCatching {
                     check(copy(paramUri, paramFile) && copy(binUri, binFile)) { "The files could not be copied" }
-                    // A pair the detector cannot read would become the model in use and fail at the next Start.
-                    if (!NativeBridge.canReadModel(paramFile.absolutePath, binFile.absolutePath)) {
-                        throw UnreadableModelException()
-                    }
-                    InstalledModel(
-                        id = id,
-                        title = name,
-                        description = "",
-                        source = ModelSource.LOCAL,
-                        paramPath = paramFile.absolutePath,
-                        binPath = binFile.absolutePath,
-                        totalSizeBytes = paramFile.length() + binFile.length(),
-                    )
+                    importedModel(id, name, paramFile, binFile, null)
                 }.onFailure { dir.deleteRecursively() }
             }
-            val isFirstModel = _models.value.installed.isEmpty()
-            installed.onSuccess {
-                catalog.addOrUpdateModel(it, makeActive = true)
-                if (!isFirstModel) {
-                    _messages.tryEmit(UiMessage(R.string.models_next_start))
-                }
-            }.onFailure {
-                Log.w(TAG, "Import failed: ${it.message}")
-                _messages.tryEmit(UiMessage(if (it is UnreadableModelException) R.string.models_import_unreadable else R.string.models_import_failed))
-            }
-            refreshModels()
+            finishImport(installed)
         }
+    }
+
+    private fun importZip(uri: Uri, fileName: String) {
+        val name = fileName.substringBeforeLast('.', fileName).ifBlank { "model" }
+        work.launch {
+            val installed = withContext(Dispatchers.IO) {
+                val idPrefix = catalog.sanitizeModelId("local-$name-${System.currentTimeMillis()}")
+                val modelsDir = File(context.filesDir, "models")
+                runCatching {
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Could not open the model ZIP")
+                    val files = input.use { ModelZipImporter.extractAll(it, modelsDir, idPrefix) }
+                    try {
+                        files.mapIndexed { index, modelFiles ->
+                            val modelName = if (files.size == 1) {
+                                name
+                            } else {
+                                modelFiles.modelName.ifBlank { "$name ${index + 1}" }
+                            }
+                            if (modelFiles.tflite != null) {
+                                importedTFLiteModel(
+                                    modelFiles.modelId,
+                                    modelName,
+                                    modelFiles.tflite,
+                                    modelFiles.description,
+                                    modelFiles.tfliteFileName ?: modelName,
+                                )
+                            } else {
+                                importedModel(
+                                    modelFiles.modelId,
+                                    modelName,
+                                    checkNotNull(modelFiles.param),
+                                    checkNotNull(modelFiles.bin),
+                                    modelFiles.description,
+                                )
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        files.mapNotNull { it.param?.parentFile ?: it.tflite?.parentFile }
+                            .distinct()
+                            .forEach { it.deleteRecursively() }
+                        throw error
+                    }
+                }
+            }
+            finishBulkImport(installed)
+        }
+    }
+
+    private fun importTFLite(uri: Uri, fileName: String) {
+        val name = fileName.substringBeforeLast('.', fileName).ifBlank { "model" }
+        work.launch {
+            val installed = withContext(Dispatchers.IO) {
+                val id = catalog.sanitizeModelId("local-$name-${System.currentTimeMillis()}")
+                val dir = File(context.filesDir, "models/$id")
+                runCatching {
+                    val modelFile = File(dir, "$id.tflite")
+                    copyTFLite(uri, modelFile)
+                    importedTFLiteModel(id, name, modelFile, null, fileName)
+                }.onFailure { dir.deleteRecursively() }
+            }
+            finishImport(installed)
+        }
+    }
+
+    private fun importedModel(
+        id: String,
+        name: String,
+        paramFile: File,
+        binFile: File,
+        descriptionFile: File?,
+    ): InstalledModel {
+        // The metadata must be used for validation too: end-to-end exports and custom input sizes cannot
+        // be probed correctly with the default profile.
+        val profile = if (descriptionFile == null) {
+            ModelProfileSpec.UNKNOWN
+        } else {
+            try {
+                ModelProfileSpec.parse(descriptionFile.readText())
+            } catch (e: JSONException) {
+                throw InvalidModelArchiveException(
+                    "The model JSON is invalid: ${e.message}",
+                    InvalidModelArchiveException.Reason.INVALID_METADATA,
+                )
+            }
+        }
+        if (!NativeBridge.canReadModel(
+                paramFile.absolutePath,
+                binFile.absolutePath,
+                profile.roles,
+                profile.endToEnd,
+                profile.inputSize,
+                profile.normalizedCoordinates,
+            )
+        ) {
+            throw UnreadableModelException()
+        }
+        return InstalledModel(
+            id = id,
+            title = name,
+            description = "",
+            source = ModelSource.LOCAL,
+            paramPath = paramFile.absolutePath,
+            binPath = binFile.absolutePath,
+            totalSizeBytes = paramFile.length() + binFile.length(),
+        )
+    }
+
+    private fun importedTFLiteModel(
+        id: String,
+        name: String,
+        modelFile: File,
+        descriptionFile: File?,
+        profileName: String,
+    ): InstalledModel {
+        val profile = if (descriptionFile != null) {
+            try {
+                ModelProfileSpec.parse(descriptionFile.readText())
+            } catch (e: JSONException) {
+                throw InvalidModelArchiveException(
+                    "The model JSON is invalid: ${e.message}",
+                    InvalidModelArchiveException.Reason.INVALID_METADATA,
+                )
+            }
+        } else {
+            ModelProfileSpec.forTFLiteFileName(profileName) ?: ModelProfileSpec.UNKNOWN
+        }
+        val rejection = if (!hasTFLiteHeader(modelFile)) {
+            "The file has no TFL3 header. Import a complete TensorFlow Lite model, not a PyTorch checkpoint or an NCNN .bin file."
+        } else {
+            NativeBridge.canReadTFLiteModel(
+                modelFile.absolutePath,
+                profile.roles,
+                profile.endToEnd,
+                profile.inputSize,
+                profile.normalizedCoordinates,
+            )
+        }
+        if (rejection != null) {
+            throw UnreadableModelException(rejection, tfliteDetail = rejection)
+        }
+        if (descriptionFile == null && profile != ModelProfileSpec.UNKNOWN) {
+            val description = JSONObject()
+                .put("roles", profile.roles)
+                .put("endToEnd", profile.endToEnd)
+            if (profile.inputSize > 0) description.put("inputSize", profile.inputSize)
+            profile.normalizedCoordinates?.let { description.put("normalizedCoordinates", it) }
+            File(modelFile.parentFile, "$id.json").writeText(description.toString())
+        }
+        return InstalledModel(
+            id = id,
+            title = name,
+            description = "",
+            source = ModelSource.LOCAL,
+            paramPath = "",
+            binPath = "",
+            totalSizeBytes = modelFile.length(),
+            format = ModelFormat.TFLITE,
+            tflitePath = modelFile.absolutePath,
+        )
+    }
+
+    private fun finishImport(installed: Result<InstalledModel>) {
+        val isFirstModel = _models.value.installed.isEmpty()
+        installed.onSuccess {
+            catalog.addOrUpdateModel(it, makeActive = true)
+            if (!isFirstModel) {
+                _messages.tryEmit(UiMessage(R.string.models_next_start))
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Import failed: ${error.message}")
+            _messages.tryEmit(UiMessage(importErrorMessage(error)))
+        }
+        refreshModels()
+    }
+
+    private fun importErrorMessage(error: Throwable): Int {
+        if (error is UnreadableModelException) {
+            return error.tfliteDetail?.let {
+                _messages.tryEmit(UiMessage(R.string.models_import_tflite_detail, listOf(it)))
+                R.string.models_import_unreadable
+            } ?: R.string.models_import_unreadable
+            return R.string.models_import_unreadable
+        }
+        if (error is InvalidModelArchiveException) {
+            return when (error.reason) {
+                InvalidModelArchiveException.Reason.INVALID_ARCHIVE -> R.string.models_import_zip_invalid
+                InvalidModelArchiveException.Reason.AMBIGUOUS_METADATA -> R.string.models_import_zip_metadata_ambiguous
+                InvalidModelArchiveException.Reason.INVALID_METADATA -> R.string.models_import_zip_metadata_invalid
+                InvalidModelArchiveException.Reason.UNSAFE_PATH -> R.string.models_import_zip_unsafe_path
+                InvalidModelArchiveException.Reason.DUPLICATE_PATH -> R.string.models_import_zip_duplicate_path
+                InvalidModelArchiveException.Reason.ARCHIVE_LIMIT -> R.string.models_import_zip_limit
+            }
+        }
+        return R.string.models_import_failed
+    }
+
+    private fun finishBulkImport(installed: Result<List<InstalledModel>>) {
+        val isFirstModel = _models.value.installed.isEmpty()
+        installed.onSuccess { models ->
+            models.forEachIndexed { index, model ->
+                catalog.addOrUpdateModel(model, makeActive = index == models.lastIndex)
+            }
+            if (!isFirstModel && models.isNotEmpty()) {
+                _messages.tryEmit(UiMessage(R.string.models_next_start))
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Import failed: ${error.message}")
+            if (error is UnreadableModelException && error.tfliteDetail != null) {
+                _messages.tryEmit(UiMessage(R.string.models_import_tflite_detail, listOf(error.tfliteDetail)))
+            } else {
+                _messages.tryEmit(UiMessage(importErrorMessage(error)))
+            }
+        }
+        refreshModels()
     }
 
     private fun copy(from: Uri, to: File): Boolean {
@@ -581,6 +809,67 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             FileOutputStream(to).use { output -> input.copyTo(output) }
             true
         } ?: false
+    }
+
+    private fun hasTFLiteHeader(file: File): Boolean {
+        val header = ByteArray(TFLITE_HEADER_SIZE)
+        return try {
+            file.inputStream().use { input ->
+                var offset = 0
+                while (offset < header.size) {
+                    val count = input.read(header, offset, header.size - offset)
+                    if (count < 0) break
+                    offset += count
+                }
+                offset == header.size && header.copyOfRange(4, 8).contentEquals(byteArrayOf(
+                    TFLITE_MAGIC_0, TFLITE_MAGIC_1, TFLITE_MAGIC_2, TFLITE_MAGIC_3,
+                ))
+            }
+        } catch (error: IOException) {
+            false
+        }
+    }
+
+    private fun copyTFLite(from: Uri, to: File) {
+        val directory = to.parentFile ?: throw IOException("Could not create the model folder")
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw IOException("Could not create the model folder")
+        }
+        val input = context.contentResolver.openInputStream(from)
+            ?: throw IOException("Could not open the TFLite model")
+        input.use { source ->
+            FileOutputStream(to).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var totalBytes = 0L
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    totalBytes += read
+                    if (totalBytes > MAX_TFLITE_MODEL_BYTES) {
+                        throw IOException("The TFLite model is larger than the 512 MB import limit")
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+    }
+
+    private fun hasTFLiteHeader(uri: Uri): Boolean {
+        val header = ByteArray(TFLITE_HEADER_SIZE)
+        val read = context.contentResolver.openInputStream(uri)?.use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val count = input.read(header, offset, header.size - offset)
+                if (count < 0) break
+                offset += count
+            }
+            offset
+        } ?: return false
+        return read == header.size &&
+            header[4] == TFLITE_MAGIC_0 &&
+            header[5] == TFLITE_MAGIC_1 &&
+            header[6] == TFLITE_MAGIC_2 &&
+            header[7] == TFLITE_MAGIC_3
     }
 
     private fun displayName(uri: Uri): String {
@@ -634,5 +923,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val SETTINGS_FILE = "settings.cfg"
         const val SAVE_DELAY_MS = 400L
         const val PROGRESS_INTERVAL_MS = 250L
+        const val MAX_TFLITE_MODEL_BYTES = 512L * 1024 * 1024
+        const val TFLITE_HEADER_SIZE = 8
+        const val TFLITE_MAGIC_0 = 'T'.code.toByte()
+        const val TFLITE_MAGIC_1 = 'F'.code.toByte()
+        const val TFLITE_MAGIC_2 = 'L'.code.toByte()
+        const val TFLITE_MAGIC_3 = '3'.code.toByte()
     }
 }

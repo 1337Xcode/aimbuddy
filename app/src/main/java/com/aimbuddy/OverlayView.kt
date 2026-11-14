@@ -9,6 +9,8 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLExt
 import android.opengl.EGLSurface
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.MotionEvent
 import android.view.TextureView
@@ -31,6 +33,11 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class OverlayView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
 
     private var renderer: RenderThread? = null
+    private var retired: RenderThread? = null   // the previous renderer; the next one waits for it, as native state is shared
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Called on the main thread once the renderer has attached and is drawing. */
+    var onRendererReady: (() -> Unit)? = null
     private val location = IntArray(2)   // where the view sits on the screen, read again on every layout
 
     init {
@@ -40,8 +47,10 @@ class OverlayView(context: Context) : TextureView(context), TextureView.SurfaceT
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
         Log.i(TAG, "Surface available: ${width}x$height")
-        renderer = RenderThread(surface, width, height, context.assets, context.resources.displayMetrics.density)
-            .also { it.start() }
+        renderer = RenderThread(
+            surface, width, height, context.assets, context.resources.displayMetrics.density, retired,
+        ) { mainHandler.post { onRendererReady?.invoke() } }.also { it.start() }
+        retired = null
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
@@ -56,6 +65,7 @@ class OverlayView(context: Context) : TextureView(context), TextureView.SurfaceT
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
         Log.i(TAG, "Surface destroyed")
         renderer?.quit()
+        retired = renderer
         renderer = null
         return true
     }
@@ -107,6 +117,8 @@ private class RenderThread(
     private val height: Int,
     private val assets: AssetManager,
     private val density: Float,
+    private val predecessor: RenderThread?,
+    private val onReady: () -> Unit,
 ) : Thread("aimbuddy-overlay-gl") {
 
     private val tasks = ConcurrentLinkedQueue<Runnable>()
@@ -126,8 +138,10 @@ private class RenderThread(
     override fun run() {
         var egl: EglSession? = null
         try {
+            predecessor?.join(PREDECESSOR_WAIT_MS)
             egl = EglSession(texture)
             OverlayNative.attach(assets, width, height, density)
+            onReady()
             while (!quitting) {
                 while (true) {
                     (tasks.poll() ?: break).run()
@@ -149,6 +163,7 @@ private class RenderThread(
 
     private companion object {
         const val TAG = "OverlayRender"
+        const val PREDECESSOR_WAIT_MS = 1000L
     }
 }
 

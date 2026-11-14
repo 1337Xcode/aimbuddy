@@ -84,6 +84,7 @@ Other things you may notice:
 - **The floating button is gone.** In streamer mode it is invisible but still there: tap where it was, or use the Menu button in the notification.
 - **A recording shows a black panel while the menu is open.** That is on purpose in streamer mode, so that the menu never reaches the recording. The panel is as tall as the screen and as wide as the menu; the game shows everywhere else. A phone that does not allow a secure window keeps the menu shut in streamer mode and says so; turn streamer mode off to open it.
 - **Move or resize on screen and Learn colour are dimmed.** Both draw over the game, which streamer mode does not do. Turn streamer mode off, set them, and turn it back on.
+- **Touch stops working in one game while AimBuddy runs.** Turn on Touch compatibility and restart AimBuddy. No full screen window stays over the game; only the visible button does. The window is attached only while the menu is open. This does not change capture or detection, and it is separate from streamer mode.
 - **The menu does not open or close.** Hold the button to stop AimBuddy, then start it again.
 
 ## Models and the store
@@ -96,8 +97,13 @@ Other things you may notice:
 | The download was damaged. Try again. (under a model) | What arrived was not the size or the checksum the store lists. The model you had is untouched. Tap Try again. |
 | Not enough space on the phone. (under a model) | Free some storage and tap Try again. |
 | That model could not be downloaded. | Anything else, such as the store answering with an error. The model you had is untouched. Try again. |
-| That model could not be imported. | The files could not be copied. Choose the `.param` file first and then the matching `.bin` file of the same export. |
-| AimBuddy cannot read that pair of files as a detection model. | The files were copied but the detector could not load them and run them once, so they are not kept and the model in use stays as it was. Check that the `.param` and the `.bin` come from the same export, and that the model is a YOLO detector with the output shape the app reads (see [Training](Training.md)). |
+| That model could not be imported. | The files could not be copied. For separate NCNN files, choose the `.param` file first and then its matching `.bin`; a `.tflite` file can be picked on its own. |
+| The ZIP must contain one `.tflite` model or one matching `.param` and `.bin` pair. | The archive was not installed. Keep the model files together in one folder inside the ZIP. A sibling `model.json` can specify `roles`, `inputSize` and `endToEnd`. |
+| The ZIP has multiple possible model settings files. | Keep one settings JSON beside the model, or name the intended file `model.json` (or after the model, e.g. `detector.json` for `detector.param`). |
+| The model settings JSON is invalid. | Correct the JSON syntax in the selected settings file and import the ZIP again. |
+| The ZIP contains an unsafe path or duplicate model or JSON paths. | Recreate the ZIP with relative paths, no `..` components, and no duplicate names, even differing only by case. |
+| The ZIP is too large or contains too many files. | Remove unnecessary files. Archives are limited to 512 entries, 64 JSON files, 1 MiB per JSON, 512 MiB per model file and 1 GiB total expanded data. |
+| AimBuddy cannot read this as a detection model. | The files were copied but the detector could not load them and run them once, so they are not kept and the model in use stays as it was. Check that the NCNN `.param` and `.bin` come from the same export. TFLite accepts a fixed, square RGB input in NHWC `[1,H,H,3]` or NCHW `[1,3,H,H]` layout and a supported detector output. A `model.json` can describe the model's roles and output settings. |
 
 A download shows how much has arrived, how fast and how long is left, with a Cancel button beside it. Cancelling ends the read at once and leaves nothing behind.
 | Can't reach GitHub. (an update) | Check the connection and try again. |
@@ -119,7 +125,7 @@ A download shows how much has arrived, how fast and how long is left, with a Can
 Gradle's native build fails with CMake errors or missing symbols. Install Android NDK 29.0.13113456 and CMake 3.22.1 with the SDK Manager, then rebuild clean:
 
 ```sh
-./gradlew clean assembleDebug
+./gradlew clean assemblePrimaryDebug
 ```
 
 ### NCNN is not found
@@ -162,7 +168,7 @@ Read `training/outputs/reports/dataset_report.json`. The usual causes are label 
 
 ### The export works but the app does not detect
 
-1. The pipeline writes `model.param`, `model.bin` and `model.json` to `training/outputs/export/` and does not touch the app. Import the two NCNN files under Models, Import.
+1. The pipeline writes `model.param`, `model.bin` and `model.json` to `training/outputs/export/` and does not touch the app. Import the two NCNN files under Models, Import, or ZIP the three files together and import the ZIP.
 2. If Start says the detection model could not be loaded, the two files are not from the same export.
 3. Lower the detection confidence: a model that was trained briefly gives low scores.
 
@@ -178,10 +184,10 @@ python src\check_model_contract.py --weights outputs\runs\detect\train\weights\b
 ## Useful commands
 
 ```sh
-./gradlew assembleDebug                                   # build
-./gradlew testDebugUnitTest                               # Kotlin tests
-sh app/src/test/native/run.sh                             # C++ core tests
-adb install -r app/build/outputs/apk/debug/app-debug.apk  # install a debug build
+./gradlew assemblePrimaryDebug                                        # build
+./gradlew testPrimaryDebugUnitTest                                    # Kotlin tests
+sh app/src/test/native/run.sh                                      # C++ core tests
+adb install -r app/build/outputs/apk/primary/debug/app-primary-debug.apk # install a debug build
 adb logcat -s AimBuddy_Native:I                           # what the native code does (debug builds)
 adb logcat -s AimBuddy_Native:E                           # errors only (release builds)
 ```

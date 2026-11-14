@@ -143,12 +143,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    // Importing a model: first the .param file, then the matching .bin file.
+    // Import a ZIP, a TFLite file (including one renamed to .bin), or a .param file then its matching .bin file.
     private val importParamLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            viewModel.onParamPicked(uri)
-            viewModel.post(UiMessage(R.string.models_import_hint))
-            importBinLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+            if (!viewModel.onModelFilePicked(uri)) {
+                viewModel.post(UiMessage(R.string.models_import_hint))
+                importBinLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+            }
         }
     }
     private val importBinLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -517,7 +518,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchImport() {
         try {
-            importParamLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+            importParamLauncher.launch(
+                arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*")
+            )
         } catch (e: ActivityNotFoundException) {
             viewModel.post(UiMessage(R.string.models_import_failed))
         }

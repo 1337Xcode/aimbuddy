@@ -18,7 +18,15 @@ struct ModelBox {
     float score = 0.0f;
     int classId = 0;
     uint8_t clipFlags = kClipNone;  ///< Edges where the box touches the border of the model input.
+    bool hasAimPoint = false;       ///< Verified pose keypoint, in model pixels.
+    float aimX = 0.0f;
+    float aimY = 0.0f;
 };
+
+/// Raw YOLO pose: centre box, person score, and 17 keypoint triples.
+constexpr int kPoseChannels = 4 + 1 + 17 * 3;
+/// YOLO26 final detections: corner box, score, class, then the same keypoint triples.
+constexpr int kPoseResultColumns = 4 + 1 + 1 + 17 * 3;
 
 /// Facts about a model's output tensor, worked out once when the model is loaded.
 struct DecodeSpec {
@@ -31,6 +39,7 @@ struct DecodeSpec {
 struct DecodeParams {
     float minScore = 0.12f;  ///< Candidates below this score are dropped before anything else.
     float nmsIou = 0.50f;    ///< Boxes of one class overlapping more than this are merged into the best.
+    float keypointScore = 0.55f;  ///< Lower-confidence keypoints never become aim points.
     int modelSize = 256;     ///< Width and height of the network input.
 };
 
@@ -39,10 +48,15 @@ struct DecodeParams {
  *
  * `rows` and `cols` are the tensor's two dimensions and `data` its contents, row by row. Pass
  * `endToEnd` when the model description says the model already removes duplicates (6 columns of
- * [x1, y1, x2, y2, score, class]); the shape alone cannot tell that apart from a two class model.
- * Returns false when the shape cannot be a detector output.
+ * [x1, y1, x2, y2, score, class]). Ordinary YOLO26 [1,300,6] rows are recognized from their values;
+ * an ambiguous warm-up needs `endToEnd` because the shape alone cannot distinguish a two-class model.
+ * Official pose tensors default to pixels. Returns false for an unsupported shape.
  */
-bool inferDecodeSpec(const float* data, int rows, int cols, bool endToEnd, DecodeSpec* spec);
+bool inferDecodeSpec(const float* data, int rows, int cols, bool endToEnd,
+                     int normalizedCoordinates, DecodeSpec* spec);
+
+/// Supplies default roles when the model has no description, preserving its other settings.
+ModelProfile profileWithDefaultRoles(const ModelProfile& profile, const DecodeSpec& spec);
 
 /**
  * Network input side implied by the number of anchors of a model with strides 8, 16 and 32

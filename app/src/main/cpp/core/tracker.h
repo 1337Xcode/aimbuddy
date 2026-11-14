@@ -32,6 +32,11 @@ struct Detection {
     float score = 0.0f;
     int classId = 0;
     uint8_t clipFlags = kClipNone;  ///< ClipFlag bits: edges where the box is cut off.
+
+    // Optional measured COCO aim point, in screen pixels. Absent means use the box estimate.
+    bool hasAimPoint = false;
+    float aimX = 0.0f;
+    float aimY = 0.0f;
 };
 
 /// The part of the screen the detector looked at during one update, in screen pixels.
@@ -64,6 +69,9 @@ struct TrackView {
     float velocityX = 0.0f;   ///< Target's own speed in screen pixels per second (camera motion removed).
     float velocityY = 0.0f;
     float velocitySigma = 0.0f; ///< How uncertain the speed estimate is (std. dev., pixels per second).
+    bool hasAimPoint = false;    ///< A verified pose keypoint, rather than a box-only estimate.
+    float aimX = 0.0f;           ///< Latest measured keypoint, screen pixels; valid only when hasAimPoint.
+    float aimY = 0.0f;
     float score = 0.0f;       ///< Smoothed detector confidence.
     float opacity = 0.0f;     ///< 1 while seen or recently seen, fading to 0 while coasting; 0 means do not draw.
     TrackPhase phase = TrackPhase::kTentative;
@@ -189,6 +197,9 @@ private:
     struct Track {
         int id = 0;
         int classId = 0;
+        bool hasAimPoint = false;
+        float aimX = 0.0f;
+        float aimY = 0.0f;
         TrackPhase phase = TrackPhase::kTentative;
         ManeuveringFilter x;
         ManeuveringFilter y;

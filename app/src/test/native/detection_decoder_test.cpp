@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -41,11 +42,193 @@ struct RawTensor {
 
 DecodeSpec specFor(const RawTensor& tensor) {
     DecodeSpec spec;
-    CHECK(inferDecodeSpec(tensor.data.data(), tensor.rows(), tensor.anchors, false, &spec));
+    CHECK(inferDecodeSpec(tensor.data.data(), tensor.rows(), tensor.anchors, false, -1, &spec));
     return spec;
 }
 
+struct PoseTensor {
+    static constexpr int anchors = 100;
+    std::vector<float> data = std::vector<float>(kPoseChannels * anchors, 0.0f);
+
+    void set(int channel, int anchor, float value) { data[channel * anchors + anchor] = value; }
+    void point(int index, float x, float y, float score) {
+        set(5 + index * 3, 0, x);
+        set(5 + index * 3 + 1, 0, y);
+        set(5 + index * 3 + 2, 0, score);
+    }
+    std::vector<float> transposed() const {
+        std::vector<float> out(data.size());
+        for (int a = 0; a < anchors; ++a) {
+            for (int c = 0; c < kPoseChannels; ++c) out[a * kPoseChannels + c] = data[c * anchors + a];
+        }
+        return out;
+    }
+};
+
+PoseTensor validPose() {
+    PoseTensor pose;
+    pose.set(0, 0, 320);
+    pose.set(1, 0, 320);
+    pose.set(2, 0, 120);
+    pose.set(3, 0, 240);
+    pose.set(4, 0, 0.9f);
+    pose.point(1, 300, 230, 0.95f);
+    pose.point(2, 320, 230, 0.90f);
+    pose.point(0, 310, 240, 0.8f);
+    pose.point(5, 290, 270, 0.8f);
+    pose.point(6, 330, 270, 0.8f);
+    return pose;
+}
+
+DecodeSpec poseSpec(const PoseTensor& pose, bool transposed = false, int normalizedCoordinates = -1) {
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(transposed ? pose.transposed().data() : pose.data.data(),
+                          transposed ? pose.anchors : kPoseChannels,
+                          transposed ? kPoseChannels : pose.anchors, false, normalizedCoordinates, &spec));
+    return spec;
+}
+
+DecodeParams poseParams() {
+    DecodeParams params;
+    params.modelSize = 640;
+    return params;
+}
+
 }  // namespace
+
+TEST(official_yolo26_pose_uses_corner_boxes_and_pixels) {
+    std::vector<float> data(300 * kPoseResultColumns, 0.0f);
+    auto row = data.data();
+    row[0] = 260;
+    row[1] = 200;
+    row[2] = 380;
+    row[3] = 440;
+    row[4] = 0.93f;
+    row[5] = 0;
+    row[6 + 1 * 3] = 300;
+    row[6 + 1 * 3 + 1] = 230;
+    row[6 + 1 * 3 + 2] = 0.95f;
+    row[6 + 2 * 3] = 320;
+    row[6 + 2 * 3 + 1] = 230;
+    row[6 + 2 * 3 + 2] = 0.95f;
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(std::vector<float>(data.size(), 0.0f).data(), 1, kPoseResultColumns,
+                          false, -1, &spec));
+    CHECK(spec.layout == OutputLayout::kPoseEndToEnd);
+    CHECK(!spec.normalized);
+    ModelBox out[4];
+    DecodeParams params;
+    params.modelSize = 640;
+    CHECK(decodeDetections(data.data(), 300, kPoseResultColumns, spec, params,
+                           ModelProfile::parseRoles("head", 1), out, 4) == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK_NEAR(out[0].left, 260, 1e-4);
+    CHECK_NEAR(out[0].aimX, 310, 1e-4);
+    CHECK_NEAR(out[0].aimY, 230, 1e-4);
+}
+
+TEST(pose_keypoints_are_mapped_before_the_screen_error_is_computed) {
+    const PoseTensor pose = validPose();
+    const DecodeSpec spec = poseSpec(pose);
+    CHECK(spec.layout == OutputLayout::kPose);
+    CHECK(spec.classCount == 1);
+    ModelBox out[4];
+    const int n = decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, poseParams(),
+                                   ModelProfile::defaultsFor(1), out, 4);
+    CHECK(n == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK_NEAR(out[0].aimX, 310.0, 1e-4);
+    CHECK_NEAR(out[0].aimY, 230.0, 1e-4);
+
+    CaptureGeometry geometry;
+    geometry.screenWidth = 2400;
+    geometry.screenHeight = 1080;
+    geometry.captureWidth = 1200;
+    geometry.captureHeight = 540;
+    RoiRect roi{300, 0, 540};
+    const Detection screen = mapToScreen(out[0], roi, geometry, 640);
+    CHECK_NEAR(screen.aimX, 300 * 2 + 310 * (540.0 / 640.0) * 2, 1e-3);
+    CHECK_NEAR(screen.aimY, 230 * (540.0 / 640.0) * 2, 1e-3);
+    CHECK(screen.hasAimPoint);
+}
+
+TEST(pose_decoder_accepts_the_transposed_layout) {
+    const PoseTensor pose = validPose();
+    const std::vector<float> data = pose.transposed();
+    const DecodeSpec spec = poseSpec(pose, true);
+    ModelBox out[4];
+    CHECK(decodeDetections(data.data(), pose.anchors, kPoseChannels, spec, poseParams(),
+                           ModelProfile::defaultsFor(1), out, 4) == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK_NEAR(out[0].aimX, 310.0, 1e-4);
+    CHECK_NEAR(out[0].aimY, 230.0, 1e-4);
+}
+
+TEST(pose_decoder_scales_an_explicitly_normalised_custom_export) {
+    PoseTensor pose = validPose();
+    for (float& value : pose.data) value = 0.0f;
+    pose.set(0, 0, 0.5f);
+    pose.set(1, 0, 0.5f);
+    pose.set(2, 0, 0.25f);
+    pose.set(3, 0, 0.5f);
+    pose.set(4, 0, 0.9f);
+    pose.point(1, 0.45f, 0.35f, 0.95f);
+    pose.point(2, 0.5f, 0.35f, 0.90f);
+    const DecodeSpec spec = poseSpec(pose, false, 1);
+    CHECK(spec.normalized);
+    ModelBox out[4];
+    DecodeParams params;
+    params.modelSize = 640;
+    CHECK(decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, params,
+                           ModelProfile::defaultsFor(1), out, 4) == 1);
+    CHECK_NEAR(out[0].aimX, 0.475 * 640, 1e-3);
+    CHECK_NEAR(out[0].aimY, 0.35 * 640, 1e-3);
+}
+
+TEST(a_zero_defaulted_low_confidence_keypoint_never_becomes_an_aim_point) {
+    PoseTensor pose = validPose();
+    for (int keypoint : {0, 1, 2}) pose.point(keypoint, 0.0f, 0.0f, 0.0f);
+    // No shoulder fallback either: the safe result is explicitly a box-only target.
+    pose.point(5, 0.0f, 0.0f, 0.1f);
+    pose.point(6, 0.0f, 0.0f, 0.1f);
+    const DecodeSpec spec = poseSpec(pose);
+    ModelBox out[4];
+    CHECK(decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, poseParams(),
+                           ModelProfile::defaultsFor(1), out, 4) == 1);
+    CHECK(!out[0].hasAimPoint);
+}
+
+TEST(pose_decoder_falls_back_to_nose_then_verified_shoulders) {
+    PoseTensor pose = validPose();
+    pose.point(1, 0, 0, 0.0f);
+    pose.point(2, 0, 0, 0.0f);
+    const DecodeSpec spec = poseSpec(pose);
+    ModelBox out[4];
+    CHECK(decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, poseParams(),
+                           ModelProfile::defaultsFor(1), out, 4) == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK_NEAR(out[0].aimX, 310, 1e-4);
+    CHECK_NEAR(out[0].aimY, 240, 1e-4);
+    pose.point(0, NAN, NAN, 0.9f);
+    CHECK(decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, poseParams(),
+                           ModelProfile::defaultsFor(1), out, 4) == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK_NEAR(out[0].aimX, 310, 1e-4);
+    CHECK_NEAR(out[0].aimY, 270 - 240 * 0.08, 1e-4);
+}
+
+TEST(nms_free_pose_keeps_one_verified_point_per_person) {
+    PoseTensor pose = validPose();
+    // YOLO26 returns final person boxes; the keypoints are not separate target classes.
+    const DecodeSpec spec = poseSpec(pose);
+    const ModelProfile profile = ModelProfile::parseRoles("head", 1);
+    ModelBox out[4];
+    CHECK(decodeDetections(pose.data.data(), kPoseChannels, pose.anchors, spec, poseParams(),
+                           profile, out, 4) == 1);
+    CHECK(out[0].hasAimPoint);
+    CHECK(out[0].classId == 0);
+    CHECK_NEAR(out[0].aimY, 230, 1e-4);
+}
 
 TEST(decoder_reads_a_raw_export_and_merges_duplicates) {
     RawTensor tensor(1, 50);
@@ -60,7 +243,7 @@ TEST(decoder_reads_a_raw_export_and_merges_duplicates) {
     CHECK(!spec.normalized);
 
     ModelBox out[8];
-    const int n = decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, DecodeParams(),
+    const int n = decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, poseParams(),
                                    ModelProfile::defaultsFor(1), out, 8);
     CHECK(n == 2);
     CHECK_NEAR(out[0].score, 0.9, 1e-4);              // strongest first
@@ -79,7 +262,7 @@ TEST(decoder_reads_the_transposed_layout_identically) {
 
     DecodeSpec first = specFor(tensor);
     DecodeSpec second;
-    CHECK(inferDecodeSpec(flipped.data(), tensor.anchors, tensor.rows(), false, &second));
+    CHECK(inferDecodeSpec(flipped.data(), tensor.anchors, tensor.rows(), false, -1, &second));
     CHECK(second.layout == OutputLayout::kRowsFirst);
     CHECK(second.classCount == first.classCount);
 
@@ -136,10 +319,11 @@ TEST(decoder_drops_a_body_box_that_a_surer_ignored_box_covers) {
     CHECK(n == 2 && std::fabs(out[0].score - 0.7f) < 1e-4f && std::fabs(out[1].score - 0.6f) < 1e-4f);
 }
 
-TEST(decoder_scales_normalised_coordinates_to_pixels) {
+TEST(decoder_reads_a_normalized_raw_export) {
     RawTensor tensor(1, 30);
     tensor.setAnchor(1, 0.5f, 0.5f, 0.25f, 0.5f, 0, 0.9f);
-    const DecodeSpec spec = specFor(tensor);
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(tensor.data.data(), tensor.rows(), tensor.anchors, false, 1, &spec));
     CHECK(spec.normalized);
     ModelBox out[4];
     CHECK(decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, DecodeParams(),
@@ -157,14 +341,84 @@ TEST(decoder_reads_an_end_to_end_export) {
                           10, 10, 30, 40, 0.80f, 2,      // class 2 is ignored
                           0, 0, 0, 0, 0.0f, 0};
     DecodeSpec spec;
-    CHECK(inferDecodeSpec(rows, 4, 6, true, &spec));
+    CHECK(inferDecodeSpec(rows, 4, 6, true, -1, &spec));
     CHECK(spec.layout == OutputLayout::kEndToEnd);
     ModelBox out[8];
-    const int n = decodeDetections(rows, 4, 6, spec, DecodeParams(), ModelProfile::parseRoles("body,head,ignore", 3), out, 8);
+    const int n = decodeDetections(rows, 4, 6, spec, poseParams(), ModelProfile::parseRoles("body,head,ignore", 3), out, 8);
     CHECK(n == 2);
     CHECK_NEAR(out[0].left, 80.0, 1e-3);
     CHECK_NEAR(out[0].bottom, 160.0, 1e-3);
     CHECK(out[1].classId == 1);
+}
+
+TEST(decoder_infers_yolo26_final_detection_rows) {
+    std::vector<float> rows(300 * 6, 0.0f);
+    const float detections[] = {80, 60, 120, 160, 0.92f, 0,
+                                150, 70, 170, 100, 0.55f, 1,
+                                10, 10, 30, 40, 0.80f, 2};
+    std::copy(std::begin(detections), std::end(detections), rows.begin());
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(rows.data(), 300, 6, false, -1, &spec));
+    CHECK(spec.layout == OutputLayout::kEndToEnd);
+    ModelBox out[8];
+    const int n = decodeDetections(rows.data(), 300, 6, spec, poseParams(),
+                                   ModelProfile::parseRoles("body,head,ignore", 3), out, 8);
+    CHECK(n == 2);
+    CHECK_NEAR(out[0].left, 80.0, 1e-3);
+    CHECK_NEAR(out[0].bottom, 160.0, 1e-3);
+    CHECK(out[1].classId == 1);
+}
+
+TEST(final_detection_without_description_uses_class_zero) {
+    std::vector<float> rows(300 * 6, 0.0f);
+    const float detection[] = {41, 18, 203, 160, 0.9f, 0};
+    std::copy(std::begin(detection), std::end(detection), rows.begin());
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(rows.data(), 300, 6, false, -1, &spec));
+    CHECK(spec.layout == OutputLayout::kEndToEnd);
+
+    ModelProfile unknown;
+    unknown.inputSize = 640;
+    unknown.normalizedCoordinates = 0;
+    const ModelProfile profile = profileWithDefaultRoles(unknown, spec);
+    CHECK(profile.roleOf(0) == ClassRole::kBody);
+    CHECK(profile.roleOf(1) == ClassRole::kIgnore);
+    CHECK(profile.inputSize == 640);
+    CHECK(profile.normalizedCoordinates == 0);
+    ModelBox out[4];
+    CHECK(decodeDetections(rows.data(), 300, 6, spec, poseParams(), profile, out, 4) == 1);
+    CHECK_NEAR(out[0].left, 41, 1e-4);
+
+    const ModelProfile described = ModelProfile::parseRoles("ignore,head", 0);
+    CHECK(profileWithDefaultRoles(described, spec).roleOf(0) == ClassRole::kIgnore);
+    CHECK(profileWithDefaultRoles(described, spec).roleOf(1) == ClassRole::kHead);
+}
+
+TEST(decoder_keeps_channels_first_two_class_tensors_raw) {
+    RawTensor tensor(2, 40);
+    tensor.setAnchor(3, 100, 120, 40, 90, 0, 0.9f);
+    tensor.setAnchor(4, 200, 60, 30, 60, 1, 0.7f);
+    const DecodeSpec spec = specFor(tensor);
+    CHECK(spec.layout == OutputLayout::kChannelsFirst);
+    CHECK(spec.classCount == 2);
+    ModelBox out[4];
+    CHECK(decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, DecodeParams(),
+                           ModelProfile::defaultsFor(2), out, 4) == 2);
+}
+
+TEST(decoder_does_not_infer_final_detections_from_empty_or_ambiguous_rows) {
+    std::vector<float> rows(300 * 6, 0.0f);
+    DecodeSpec spec;
+    CHECK(inferDecodeSpec(rows.data(), 300, 6, false, -1, &spec));
+    CHECK(spec.layout == OutputLayout::kRowsFirst);
+    rows[0] = 100;
+    rows[1] = 100;
+    rows[2] = 80;
+    rows[3] = 160;
+    rows[4] = 0.9f;
+    rows[5] = 0;
+    CHECK(inferDecodeSpec(rows.data(), 300, 6, false, -1, &spec));
+    CHECK(spec.layout == OutputLayout::kRowsFirst);
 }
 
 TEST(decoder_flags_boxes_cut_off_by_the_input_border) {
@@ -188,17 +442,17 @@ TEST(decoder_survives_garbage_values) {
     DecodeSpec spec;
     spec.layout = OutputLayout::kChannelsFirst;
     spec.classCount = 1;
-    CHECK(decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, DecodeParams(),
+    CHECK(decodeDetections(tensor.data.data(), tensor.rows(), tensor.anchors, spec, poseParams(),
                            ModelProfile::defaultsFor(1), out, 4) == 0);
-    CHECK(decodeDetections(nullptr, 5, 20, spec, DecodeParams(), ModelProfile::defaultsFor(1), out, 4) == 0);
+    CHECK(decodeDetections(nullptr, 5, 20, spec, poseParams(), ModelProfile::defaultsFor(1), out, 4) == 0);
 }
 
 TEST(decoder_rejects_shapes_that_cannot_be_detections) {
     DecodeSpec spec;
     const float one = 0.0f;
-    CHECK(!inferDecodeSpec(&one, 1, 1, false, &spec));
-    CHECK(!inferDecodeSpec(&one, 3, 400, false, &spec));    // fewer than 4 box values and a class
-    CHECK(!inferDecodeSpec(nullptr, 5, 400, false, &spec));
+    CHECK(!inferDecodeSpec(&one, 1, 1, false, -1, &spec));
+    CHECK(!inferDecodeSpec(&one, 3, 400, false, -1, &spec));    // fewer than 4 box values and a class
+    CHECK(!inferDecodeSpec(nullptr, 5, 400, false, -1, &spec));
 }
 
 TEST(mapping_takes_model_pixels_to_screen_pixels) {

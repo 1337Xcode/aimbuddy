@@ -418,6 +418,7 @@ private fun AppGroup(settings: SettingsView, appearance: Appearance, actions: Se
             )
         }
         toggleRow("streamerMode", R.string.s_streamer, false, settings, actions)
+        toggleRow("touchCompatMode", R.string.s_touch_compat, false, settings, actions, subtitle = R.string.s_touch_compat_subtitle)
     }
 }
 
@@ -521,10 +522,12 @@ private fun GroupScope.toggleRow(
     default: Boolean,
     settings: SettingsView,
     actions: SettingsActions,
+    subtitle: Int? = null,
 ) {
     row {
         SwitchRow(
             title = stringResource(title),
+            subtitle = subtitle?.let { stringResource(it) },
             checked = settings.bool(name, default),
             onCheckedChange = { actions.set(name, if (it) "1" else "0") },
         )

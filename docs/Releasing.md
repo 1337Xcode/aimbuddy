@@ -71,7 +71,7 @@ keyAlias=aimbuddy
 keyPassword=<key password>
 ```
 
-With it, `assembleRelease` signs with the upload key, and so does `assembleDebug`:
+With it, `assemblePrimaryRelease` signs with the upload key, and so does `assemblePrimaryDebug`:
 the debug build uses the key too whenever the keystore is at hand, so that the
 debug files published with releases can update one another. Without a keystore,
 a local release build is signed with Android's debug key and must not be

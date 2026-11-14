@@ -71,6 +71,7 @@ void visitFields(Settings_& s, Visitor&& visit) {
     visit("anchorOpacity", s.anchorOpacity);
     visit("touchBackend", s.touchBackend);
     visit("streamerMode", s.streamerMode);
+    visit("touchCompatMode", s.touchCompatMode);
     visit("language", s.language);
 }
 

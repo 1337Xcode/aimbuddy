@@ -42,16 +42,21 @@ data class StoreModelDefinition(
     val author: String,
     val version: Int,
     val icon: StoreFile?,
-    val param: StoreFile,
-    val bin: StoreFile,
+    val param: StoreFile? = null,
+    val bin: StoreFile? = null,
+    val tflite: StoreFile? = null,
     val profile: StoreFile,
 ) {
+    val format: ModelFormat
+        get() = if (tflite != null) ModelFormat.TFLITE else ModelFormat.NCNN
+
     val totalSizeBytes: Long
-        get() = param.sizeBytes + bin.sizeBytes + profile.sizeBytes
+        get() = (param?.sizeBytes ?: 0L) + (bin?.sizeBytes ?: 0L) +
+            (tflite?.sizeBytes ?: 0L) + profile.sizeBytes
 }
 
-/** The files of a model that was just installed. */
-class InstalledFiles(val param: File, val bin: File)
+/** The files of a model that was just installed; exactly one format is present. */
+class InstalledFiles(val param: File?, val bin: File?, val tflite: File?)
 
 /** The models the store lists, and whether this is the copy saved by an earlier visit because the store could not be reached now. */
 data class StoreList(val models: List<StoreModelDefinition>, val saved: Boolean)
@@ -150,14 +155,23 @@ class ModelStoreRepository(
         try {
             val total = model.totalSizeBytes.coerceAtLeast(1L)
             var doneBytes = 0L
-            val steps = listOf(model.param to PARAM_FILE, model.bin to BIN_FILE, model.profile to PROFILE_FILE)
+            val steps = listOfNotNull(
+                model.param?.let { it to PARAM_FILE },
+                model.bin?.let { it to BIN_FILE },
+                model.tflite?.let { it to TFLITE_FILE },
+                model.profile to PROFILE_FILE,
+            )
             for ((file, name) in steps) {
                 download(file, File(work, name), isCancelled) { read -> onProgress(doneBytes + read, total) }
                 doneBytes += file.sizeBytes
             }
             swapIn(work, targetDir)
             finished = true
-            return InstalledFiles(File(targetDir, PARAM_FILE), File(targetDir, BIN_FILE))
+            return InstalledFiles(
+                param = model.param?.let { File(targetDir, PARAM_FILE) },
+                bin = model.bin?.let { File(targetDir, BIN_FILE) },
+                tflite = model.tflite?.let { File(targetDir, TFLITE_FILE) },
+            )
         } finally {
             if (!finished) {
                 work.deleteRecursively()
@@ -258,6 +272,7 @@ class ModelStoreRepository(
         const val PARAM_FILE = "model.param"
         const val BIN_FILE = "model.bin"
         const val PROFILE_FILE = "model.json"
+        const val TFLITE_FILE = "model.tflite"
 
         private const val INDEX_FILE = "index.json"
         private const val SUPPORTED_SCHEMA = 1
@@ -300,6 +315,15 @@ class ModelStoreRepository(
         private fun parseEntry(json: JSONObject, baseUrl: String): StoreModelDefinition {
             val id = json.getString("id")
             require(ID_PATTERN.matches(id)) { "bad model id: $id" }
+            val tflite = json.optJSONObject("tflite")?.let { parseFile(it, baseUrl) }
+            val param = json.optJSONObject("param")?.let { parseFile(it, baseUrl) }
+            val bin = json.optJSONObject("bin")?.let { parseFile(it, baseUrl) }
+            require((tflite != null) != (param != null && bin != null)) {
+                "$id must contain either a TFLite model or an NCNN model pair"
+            }
+            require(tflite == null || (param == null && bin == null)) {
+                "$id mixes TFLite and NCNN files"
+            }
             return StoreModelDefinition(
                 id = id,
                 title = json.getString("title").trim().also { require(it.isNotEmpty()) { "$id has no title" } },
@@ -307,8 +331,9 @@ class ModelStoreRepository(
                 author = json.optString("author").trim(),
                 version = json.getInt("version").also { require(it >= 1) { "$id has no version" } },
                 icon = json.optJSONObject("icon")?.let { parseFile(it, baseUrl) },
-                param = parseFile(json.getJSONObject("param"), baseUrl),
-                bin = parseFile(json.getJSONObject("bin"), baseUrl),
+                param = param,
+                bin = bin,
+                tflite = tflite,
                 profile = parseFile(json.getJSONObject("profile"), baseUrl),
             )
         }

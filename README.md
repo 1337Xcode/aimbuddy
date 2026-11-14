@@ -452,7 +452,7 @@ stateDiagram-v2
 
 ## Models and updates
 
-The app carries no model: the APK is about 7 MB and a first run opens on the Models page, where AimBuddy General (9.2 MB) is one tap away. The store is a static `model/index.json` served from this repository, listing each model's files with their size and SHA-256. Every file is checked against those figures, a model replaces the old one only when it is complete, and a failed or cancelled download leaves the working model alone. A pair of `.param` and `.bin` files can be imported too, and is kept only if the detector can load it. See [model/README.md](model/README.md).
+The app carries no model: the APK is about 7 MB and a first run opens on the Models page, where AimBuddy General (9.2 MB) is one tap away. The store is a static `model/index.json` served from this repository, listing each model's files with their size and SHA-256. Every file is checked against those figures, a model replaces the old one only when it is complete, and a failed or cancelled download leaves the working model alone. A pair of `.param` and `.bin` files, a standalone `.tflite` file (including a TFLite file renamed to `.bin`), or a ZIP containing exactly one supported model can be imported; the TFLite runner supports single-output detectors and EdgeFirst YOLO11 smart COCO models with six split outputs, using the `person` class from the latter. A sibling `model.json` in a ZIP can carry its settings. An imported model is kept only if the matching detector can load it. See [model/README.md](model/README.md).
 
 AimBuddy General 2 is made for phones first. It learned from Free Fire and PUBG Mobile footage and from four PC shooters, and it has a class for the player's own character, which the app leaves out. It reads the same 256 px square as version 1 and takes as long (8.1 ms a frame against 8.6 ms on a laptop processor, the two run in turn). It was judged on 602 views from Free Fire and PUBG Mobile videos it never saw, with 57 players in them counted by eye. At the default confidence it found 30 of the players, where version 1 found 13 and sunxds 17. It boxed the player's own character in none of the views, where version 1 did in 111, and it drew 6 boxes on things that are not people (a pylon, a distant car and a figure painted on a car), where version 1 drew 2. On the test pictures of four PC sets, which come from the same games it trained on, it found 86% of the players in CS:GO, 78% in Apex Legends, 97% in Halo Infinite and 68% in Far Cry 6, where version 1 found 18%, 5%, 0% and 58%. [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) says how it is built and judged.
 
@@ -550,11 +550,23 @@ Releases before 0.3.5-beta.1 cannot update themselves, so install that one by ha
 You need JDK 17, the Android SDK 35 with build tools 36, NDK 29.0.13113456 and CMake 3.22.1.
 
 ```sh
-./gradlew assembleDebug                 # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest             # Kotlin tests
-sh app/src/test/native/run.sh           # C++ core tests, with a C++17 compiler on the path
-sh app/src/test/native/bench/run.sh     # the benchmarks above
+./gradlew assemblePrimaryDebug              # app/build/outputs/apk/primary/debug/app-primary-debug.apk
+./gradlew testPrimaryDebugUnitTest          # Kotlin tests
+sh app/src/test/native/run.sh            # C++ core tests, with a C++17 compiler on the path
+sh app/src/test/native/bench/run.sh      # the benchmarks above
 ```
+
+A second, independently installable copy (its own applicationId, settings and model files) is
+available for whoever wants to keep an older install around while trying a newer build:
+
+```sh
+./gradlew assembleParallelRelease        # app/build/outputs/apk/parallel/release/app-parallel-release.apk
+./gradlew assembleParallelDebug          # app/build/outputs/apk/parallel/debug/app-parallel-debug.apk
+```
+
+It shows up on the home screen as "AimBuddy Parallel" and installs next to the regular AimBuddy
+without uninstalling it, the same way the `-debug` release file does (see `productFlavors` in
+[app/build.gradle](app/build.gradle)). CI only builds and publishes the regular `primary` flavor.
 
 - `app/src/test/native` holds C++ tests of the parts that perform no input or output: the tracker, camera motion, the touch merger, the detector's decoding, the colour finder, the menu's drag scroller, the overlay's fingerprint and the settings. The aim controller is run against a simulated game with a known camera gain and delay, and has to settle for gains and delays it was not told.
 - `app/src/test/java` holds Kotlin tests of the update logic, the model store (downloads, cancelling, failures), the touch access checks and the thermal limits.

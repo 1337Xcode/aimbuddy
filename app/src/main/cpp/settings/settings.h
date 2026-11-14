@@ -72,6 +72,7 @@ struct Settings {
     // --- App ---
     int touchBackend = static_cast<int>(TouchBackend::kAuto);
     bool streamerMode = false;            ///< Hide the overlay from screenshots and recordings.
+    bool touchCompatMode = false;         ///< Use streamer-style hiding and a protected menu for games with touch conflicts.
     int language = 0;                     ///< 0 English, 1 Chinese, 2 Russian.
 
     /// Brings every value into its allowed range.

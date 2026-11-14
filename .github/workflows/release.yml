@@ -211,7 +211,10 @@ jobs:
           AIMBUDDY_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleRelease assembleDebug
+          # Only the "primary" flavor is published; "parallel" (see app/build.gradle) is a separate
+          # applicationId meant for installing next to an already-installed copy on one's own
+          # device, not something this release ships.
+          ./gradlew --no-daemon assemblePrimaryRelease assemblePrimaryDebug
 
       - name: Name the APKs
         id: locate
@@ -222,14 +225,14 @@ jobs:
           OUT="${RUNNER_TEMP}/apks"
           mkdir -p "${OUT}"
           for variant in release debug; do
-            if [ ! -f "app/build/outputs/apk/${variant}/app-${variant}.apk" ]; then
-              echo "No ${variant} APK under app/build/outputs/apk/${variant}."
+            if [ ! -f "app/build/outputs/apk/primary/${variant}/app-primary-${variant}.apk" ]; then
+              echo "No ${variant} APK under app/build/outputs/apk/primary/${variant}."
               ls -R app/build/outputs || true
               exit 1
             fi
           done
-          cp app/build/outputs/apk/release/app-release.apk "${OUT}/AimBuddy-v${VERSION}.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "${OUT}/AimBuddy-v${VERSION}-debug.apk"
+          cp app/build/outputs/apk/primary/release/app-primary-release.apk "${OUT}/AimBuddy-v${VERSION}.apk"
+          cp app/build/outputs/apk/primary/debug/app-primary-debug.apk "${OUT}/AimBuddy-v${VERSION}-debug.apk"
           echo "apk_dir=${OUT}" >> "$GITHUB_OUTPUT"
           ls -lh "${OUT}"
 

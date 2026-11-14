@@ -12,6 +12,7 @@
 #include "../core/detection_batch.h"
 #include "../core/detection_decoder.h"
 #include "../core/model_profile.h"
+#include "detector.h"
 
 namespace aimbuddy {
 
@@ -30,7 +31,7 @@ namespace aimbuddy {
  *
  * All methods except setMinScore() must be called from a single thread at a time.
  */
-class YoloDetector {
+class YoloDetector final : public Detector {
 public:
     enum class Backend { kCpu, kVulkan };
 

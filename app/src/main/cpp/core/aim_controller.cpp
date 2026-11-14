@@ -115,6 +115,25 @@ float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
 float nsToSeconds(int64_t ns) { return static_cast<float>(ns) * 1e-9f; }
 
+/**
+ * Low-pass filtering of a movement command with a bounded, deceleration-aware release.
+ * There is no integrator and no state carried across a dead zone or touch release. A reversal or
+ * deceleration is never held back by a previous frame's movement, so filtering cannot itself cause
+ * overshoot; only an accelerating command in the same direction is damped.
+ */
+float stableAxisStep(float requested, float previous, float maxStepPx, float timeConstantS, float dtS) {
+    if (!std::isfinite(requested) || !std::isfinite(previous)) {
+        return 0.0f;
+    }
+    const float cap = std::max(0.0f, maxStepPx);
+    if (requested == 0.0f || previous * requested <= 0.0f || std::fabs(requested) <= std::fabs(previous)) {
+        return std::clamp(requested, -cap, cap);
+    }
+    const float alpha = 1.0f - std::exp(-std::max(0.0f, dtS) / std::max(timeConstantS, 0.001f));
+    const float filtered = previous + alpha * (requested - previous);
+    return std::clamp(filtered, -std::min(cap, std::fabs(requested)), std::min(cap, std::fabs(requested)));
+}
+
 /// While the camera cannot be watched, the finger moves, closes the gap and leads a moving target by
 /// this much less at the most (each by its own share of the blindness, 0 to 1).
 constexpr float kBlindTravelLoss = 0.75f;
@@ -333,6 +352,8 @@ AimOutput AimController::lift() {
         out.action = AimAction::kTouchUp;
         touching_ = false;
     }
+    previousStepX_ = 0.0f;
+    previousStepY_ = 0.0f;
     fingerX_ = settings_.anchorX;
     fingerY_ = settings_.anchorY;
     return out;
@@ -629,6 +650,10 @@ bool AimController::beginPursuit(int64_t nowNs, const CameraResponse& response, 
 
     // The dead zone keeps the finger still when already on target. A moving target must be
     // followed closely, so the dead zone shrinks as the target's speed becomes certain.
+    if (!std::isfinite(pursuit->errorX) || !std::isfinite(pursuit->errorY) ||
+        !std::isfinite(body->height) || body->height <= 0.0f) {
+        return false;
+    }
     const float restingDeadzone = std::max(settings_.deadzoneMinPx, settings_.deadzoneBoxFraction * body->height);
     const float movingDeadzone = std::max(settings_.deadzoneMinPx, restingDeadzone * kMovingDeadzoneShare);
     pursuit->deadzone = lerp(restingDeadzone, movingDeadzone, pursuit->movingShare);
@@ -649,6 +674,8 @@ AimOutput AimController::putFingerDown(int64_t nowNs, const Pursuit& pursuit) {
         runStartNs_ = nowNs;
     }
     touching_ = true;
+    previousStepX_ = 0.0f;
+    previousStepY_ = 0.0f;
     fingerX_ = settings_.anchorX;
     fingerY_ = settings_.anchorY;
     return {AimAction::kTouchDown, fingerX_, fingerY_};
@@ -656,11 +683,17 @@ AimOutput AimController::putFingerDown(int64_t nowNs, const Pursuit& pursuit) {
 
 AimController::FingerStep AimController::planFingerStep(int64_t nowNs, const CameraResponse& response,
                                                         const Pursuit& pursuit, const PlayerInput& player,
-                                                        float dt) const {
+                                                        float dt) {
     const TrackView& body = *pursuit.body;
+    if (!std::isfinite(body.velocityX) || !std::isfinite(body.velocityY) ||
+        !std::isfinite(response.gainX) || !std::isfinite(response.gainY)) {
+        previousStepX_ = 0.0f;
+        previousStepY_ = 0.0f;
+        return FingerStep();
+    }
     const float blindness = motion_->blindness(nowNs);
-    const float gainX = std::max(response.gainX, 0.05f);
-    const float gainY = std::max(response.gainY, 0.05f);
+    const float gainX = std::clamp(response.gainX, 0.05f, 100.0f);
+    const float gainY = std::clamp(response.gainY, 0.05f, 100.0f);
     const float yDirection = response.invertY ? -1.0f : 1.0f;
     FingerStep step;
 
@@ -697,15 +730,28 @@ AimController::FingerStep AimController::planFingerStep(int64_t nowNs, const Cam
     float pendingX = 0.0f;
     float pendingY = 0.0f;
     motion_->unseenFinger(&pendingX, &pendingY);
+    if (!std::isfinite(pendingX) || !std::isfinite(pendingY)) {
+        return FingerStep();
+    }
     const float room = std::max(0.0f, travelCapFor(motion_->confidence(), blindness) - std::hypot(pendingX, pendingY));
     allowed = std::min(allowed, room);
 
     const float length = std::hypot(step.x, step.y);
+    if (!std::isfinite(length) || !std::isfinite(allowed)) {
+        return FingerStep();
+    }
     if (length > allowed) {
         const float scale = length > 0.0f ? allowed / length : 0.0f;
         step.x *= scale;
         step.y *= scale;
     }
+
+    // Independently damp acceleration on X and Y, then apply absolute per-update caps. Vertical
+    // filtering is deliberately stronger, and no invalid detector/gain result can reach dispatch.
+    step.x = stableAxisStep(step.x, previousStepX_, settings_.maxFingerStepXPx, settings_.smoothingTimeXS, dt);
+    step.y = stableAxisStep(step.y, previousStepY_, settings_.maxFingerStepYPx, settings_.smoothingTimeYS, dt);
+    previousStepX_ = pursuit.onTarget() ? 0.0f : step.x;
+    previousStepY_ = pursuit.onTarget() ? 0.0f : step.y;
     return step;
 }
 

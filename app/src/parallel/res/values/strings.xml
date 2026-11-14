@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Overrides the main flavor's app_name (see res/values/strings.xml) so the two installs are
+         tellable apart on the home screen; everything else about this flavor is identical. -->
+    <string name="app_name" translatable="false">AimBuddy Parallel</string>
+</resources>

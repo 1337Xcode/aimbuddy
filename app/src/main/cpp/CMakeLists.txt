@@ -131,6 +131,19 @@ message(STATUS "NCNN library: ${NCNN_LIBRARY}")
 message(STATUS "NCNN include: ${NCNN_INCLUDE_DIR}")
 
 # =============================================================================
+# TensorFlow Lite C API. The Java AAR supplies the runtime; this is the same
+# library loaded by its Java bindings, so no second inference runtime is added.
+# Gradle extracts the AAR before configuring CMake.
+# =============================================================================
+set(TFLITE_ROOT ${TFLITE_RUNTIME_ROOT})
+set(TFLITE_LIBRARY ${TFLITE_ROOT}/lib/${ANDROID_ABI}/libtensorflowlite_jni.so)
+if(NOT EXISTS ${TFLITE_LIBRARY})
+    message(FATAL_ERROR "TFLite runtime not found at ${TFLITE_LIBRARY}")
+endif()
+add_library(tflite_runtime SHARED IMPORTED)
+set_target_properties(tflite_runtime PROPERTIES IMPORTED_LOCATION ${TFLITE_LIBRARY})
+
+# =============================================================================
 # ImGui Sources
 # =============================================================================
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
@@ -153,6 +166,7 @@ set(ESP_SOURCES
     overlay/target_overlay.cpp
     core/tracker.cpp
     core/detection_decoder.cpp
+    core/tflite_tensor.cpp
     core/aim_controller.cpp
     core/camera_motion.cpp
     core/colour_blobs.cpp
@@ -162,6 +176,7 @@ set(ESP_SOURCES
     core/look_watch.cpp
     core/output_agreement.cpp
     core/response_estimator.cpp
+    detector/tflite_detector.cpp
     detector/yolo_detector.cpp
     pipeline/aim_loop.cpp
     renderer/imgui_menu.cpp
@@ -179,6 +194,7 @@ target_include_directories(esp_native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${NCNN_INCLUDE_DIR}
     ${IMGUI_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tflite/include
 )
 
 # Hooks that let a test scene stand in for the model. Only debug builds switch them on.
@@ -213,6 +229,7 @@ target_link_libraries(esp_native
     ${NATIVEWINDOW_LIB}
     ${VULKAN_LIB}
     ${NCNN_EXISTING_LIBS}
+    tflite_runtime
 )
 
 # Vulkan / media NDK support
