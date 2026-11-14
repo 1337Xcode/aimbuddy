@@ -1,0 +1,25 @@
+{
+  "name": "AimBuddy Android",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "containerEnv": {
+    "ANDROID_HOME": "${containerEnv:HOME}/android-sdk",
+    "ANDROID_SDK_ROOT": "${containerEnv:HOME}/android-sdk"
+  },
+  "postCreateCommand": "bash .devcontainer/setup-android-sdk.sh",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "APK downloads",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "fwcd.kotlin",
+        "mathiasfrohlich.Kotlin"
+      ]
+    }
+  }
+}
