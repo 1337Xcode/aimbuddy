@@ -33,6 +33,7 @@ namespace std {
 #pragma clang diagnostic pop
 
 #include "app_state.h"
+#include "detector/tflite_detector.h"
 #include "utils/logger.h"
 
 /**
@@ -78,6 +79,35 @@ std::string toStdString(JNIEnv* env, jstring text) {
     std::string copy(chars);
     env->ReleaseStringUTFChars(text, chars);
     return copy;
+}
+
+/// Converts a nullable Java Boolean into the profile's auto/pixels/fractions choice.
+int normalizedCoordinateMode(JNIEnv* env, jobject value) {
+    if (value == nullptr) return -1;
+    const jclass booleanClass = env->FindClass("java/lang/Boolean");
+    const jmethodID getValue = booleanClass == nullptr ? nullptr :
+        env->GetMethodID(booleanClass, "booleanValue", "()Z");
+    if (booleanClass == nullptr || getValue == nullptr) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return -1;
+    }
+    const jboolean result = env->CallBooleanMethod(value, getValue);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -1;
+    }
+    return result == JNI_TRUE ? 1 : 0;
+}
+
+aimbuddy::ModelProfile makeModelProfile(JNIEnv* env, jstring roles, jboolean endToEnd,
+                                        jint inputSize, jobject normalizedCoordinates) {
+    const std::string roleList = toStdString(env, roles);
+    aimbuddy::ModelProfile profile =
+        roleList.empty() ? aimbuddy::ModelProfile() : aimbuddy::ModelProfile::parseRoles(roleList, 0);
+    profile.endToEndOutput = endToEnd == JNI_TRUE;
+    profile.inputSize = inputSize > 0 ? inputSize : 0;
+    profile.normalizedCoordinates = normalizedCoordinateMode(env, normalizedCoordinates);
+    return profile;
 }
 
 /// Turns the player's settings into what the aim loop works from.
@@ -333,19 +363,17 @@ JNIEXPORT void JNICALL Java_com_aimbuddy_NativeBridge_resetSettings(JNIEnv* /* e
  */
 JNIEXPORT jboolean JNICALL
 Java_com_aimbuddy_NativeBridge_loadModel(JNIEnv* env, jclass /* clazz */, jstring paramPath, jstring binPath,
-                                         jstring roles, jboolean endToEnd, jint inputSize) {
+                                         jstring roles, jboolean endToEnd, jint inputSize,
+                                         jobject normalizedCoordinates) {
     std::lock_guard<std::mutex> lock(g_loadMutex);
     if (g_pipeline.isRunning()) {
         LOGE("Cannot load a model while running");
         return JNI_FALSE;
     }
 
-    const std::string roleList = toStdString(env, roles);
-    aimbuddy::ModelProfile profile =
-        roleList.empty() ? aimbuddy::ModelProfile() : aimbuddy::ModelProfile::parseRoles(roleList, 0);
-    profile.endToEndOutput = endToEnd == JNI_TRUE;
-    profile.inputSize = inputSize > 0 ? inputSize : 0;
-    LOGI("Model profile: roles='%s' endToEnd=%d inputSize=%d", roleList.c_str(), endToEnd == JNI_TRUE, inputSize);
+    const aimbuddy::ModelProfile profile = makeModelProfile(env, roles, endToEnd, inputSize, normalizedCoordinates);
+    LOGI("Model profile: roles='%s' endToEnd=%d inputSize=%d", toStdString(env, roles).c_str(),
+         endToEnd == JNI_TRUE, inputSize);
 
     g_modelLoaded = g_pipeline.loadModel(toStdString(env, paramPath), toStdString(env, binPath), profile);
     if (!g_modelLoaded) {
@@ -354,21 +382,55 @@ Java_com_aimbuddy_NativeBridge_loadModel(JNIEnv* env, jclass /* clazz */, jstrin
     return g_modelLoaded ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_aimbuddy_NativeBridge_loadTFLiteRunner(JNIEnv* env, jclass /* clazz */, jobject runner, jstring roles,
+                                                 jboolean endToEnd, jint inputSize,
+                                                 jobject normalizedCoordinates) {
+    std::lock_guard<std::mutex> lock(g_loadMutex);
+    if (g_pipeline.isRunning()) {
+        LOGE("Cannot load a model while running");
+        return JNI_FALSE;
+    }
+
+    const aimbuddy::ModelProfile profile = makeModelProfile(env, roles, endToEnd, inputSize, normalizedCoordinates);
+    g_modelLoaded = g_pipeline.loadTFLiteModel(env, runner, profile);
+    if (!g_modelLoaded) {
+        LOGE("Failed to load the TFLite detection model");
+    }
+    return g_modelLoaded ? JNI_TRUE : JNI_FALSE;
+}
+
 /**
  * @brief Whether a pair of files can be used as a detection model: loaded, and run once on a blank picture.
  *
  * It uses a detector of its own, so it can run while the assist does; the one that finds targets is not touched.
+ * @param roles Comma separated class roles from the model description
+ * @param endToEnd True if the model already removes duplicate detections
+ * @param inputSize Width and height of the network input, or 0 to work it out
  */
 JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_canReadModel(JNIEnv* env, jclass /* clazz */, jstring paramPath,
-                                                                         jstring binPath) {
+                                                                         jstring binPath, jstring roles,
+                                                                         jboolean endToEnd, jint inputSize,
+                                                                         jobject normalizedCoordinates) {
+    const aimbuddy::ModelProfile profile = makeModelProfile(env, roles, endToEnd, inputSize, normalizedCoordinates);
     aimbuddy::YoloDetector probe;
-    const bool readable = probe.load(toStdString(env, paramPath).c_str(), toStdString(env, binPath).c_str(), aimbuddy::ModelProfile());
+    const bool readable = probe.load(toStdString(env, paramPath).c_str(), toStdString(env, binPath).c_str(), profile);
     return readable ? JNI_TRUE : JNI_FALSE;
 }
 
-/** @brief Whether the player has chosen to find targets by a colour, which needs no model. */
+JNIEXPORT jboolean JNICALL
+Java_com_aimbuddy_NativeBridge_canReadTFLiteRunner(JNIEnv* env, jclass /* clazz */, jobject runner, jstring roles,
+                                                    jboolean endToEnd, jint inputSize,
+                                                    jobject normalizedCoordinates) {
+    const aimbuddy::ModelProfile profile = makeModelProfile(env, roles, endToEnd, inputSize, normalizedCoordinates);
+    aimbuddy::TFLiteDetector probe;
+    return probe.load(env, runner, profile) ? JNI_TRUE : JNI_FALSE;
+}
+
+/** @brief Whether colour detection can run by itself: chosen, and with a learned colour. */
 JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_usesColourDetection(JNIEnv* /* env */, jclass /* clazz */) {
-    return g_settingsStore.get().detector == 1 ? JNI_TRUE : JNI_FALSE;
+    const Settings settings = g_settingsStore.get();
+    return (settings.detector == 1 && settings.colourLearned) ? JNI_TRUE : JNI_FALSE;
 }
 
 /**
@@ -404,11 +466,15 @@ Java_com_aimbuddy_NativeBridge_configureDisplay(JNIEnv* /* env */, jclass /* cla
 
 /** @brief Starts detection and, if the assist is switched on, the aim loop. */
 JNIEXPORT jboolean JNICALL Java_com_aimbuddy_NativeBridge_start(JNIEnv* /* env */, jclass /* clazz */) {
-    // The choice of what finds the targets is taken here: a colour needs no model, the model needs to be loaded.
+    // The choice of what finds the targets is taken here: colour mode needs a learned colour, otherwise the model is used.
     Settings settings = g_settingsStore.get();
-    g_pipeline.setColourDetection(settings.detector == 1);
+    const bool useColourDetection = settings.detector == 1 && settings.colourLearned;
+    if (settings.detector == 1 && !settings.colourLearned) {
+        LOGW("Colour detection was selected without a learned colour; falling back to model detection");
+    }
+    g_pipeline.setColourDetection(useColourDetection);
     if (!g_pipeline.canStart()) {
-        LOGE("Cannot start: no model loaded");
+        LOGE("Cannot start: no usable detector is ready");
         return JNI_FALSE;
     }
     // The assist starts off on every run. It moves the aim by itself, so the player turns it on in the game.

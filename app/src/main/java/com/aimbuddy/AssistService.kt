@@ -36,6 +36,10 @@ import java.util.concurrent.Executors
  *
  * Because the service owns the overlay, the app's screen can be closed at any time while the
  * assist keeps running over the game, and reopening the app shows its state again (AssistState).
+ *
+ * Touch compatibility mode uses the same hidden-button and protected-menu behavior as streamer mode.
+ * Detection and aim assist continue to run, and the menu remains available from the hidden button or
+ * the notification.
  */
 class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge.StopListener {
 
@@ -54,6 +58,9 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
 
     /** Whether streamer mode is on, which decides what the notification's icon shows. */
     private var streamerMode = false
+
+    /** Whether the overlay should use streamer-style hiding this run (read once at the start). */
+    private var touchCompatMode = false
 
     /** Asks now and then whether the touch helper is still there once it has connected. */
     private val touchWatch = object : Runnable {
@@ -107,6 +114,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         if (!running) {
             // Streamer mode set in an earlier run holds from the first moment, even for the notification's icon.
             streamerMode = savedStreamerMode()
+            touchCompatMode = savedTouchCompatMode()
         }
         // The notification must exist before anything else: a foreground service has seconds to show one.
         showForegroundNotification()
@@ -162,7 +170,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
     private fun loadSettingsAndModel(): Boolean {
         NativeBridge.loadSettings(File(filesDir, SETTINGS_FILE).path)
         if (NativeBridge.usesColourDetection()) {
-            return true   // a colour is looked for: there is no model to load
+            return true   // colour mode is ready (already learned), so no model is needed
         }
         val catalog = ModelCatalog(this)
         catalog.tidy()
@@ -170,14 +178,29 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
             Log.e(TAG, "No model is installed")
             return false
         }
-        val spec = ModelProfileSpec.readFor(model.paramPath)
-        return NativeBridge.loadModel(
-            model.paramPath,
-            model.binPath,
-            spec.roles,
-            spec.endToEnd,
-            spec.inputSize,
-        )
+        return when (model.format) {
+            ModelFormat.NCNN -> {
+                val spec = ModelProfileSpec.readFor(model.paramPath)
+                NativeBridge.loadModel(
+                    model.paramPath,
+                    model.binPath,
+                    spec.roles,
+                    spec.endToEnd,
+                    spec.inputSize,
+                    spec.normalizedCoordinates,
+                )
+            }
+            ModelFormat.TFLITE -> {
+                val spec = ModelProfileSpec.readForTFLite(model.tflitePath)
+                NativeBridge.loadTFLiteModel(
+                    checkNotNull(model.tflitePath),
+                    spec.roles,
+                    spec.endToEnd,
+                    spec.inputSize,
+                    spec.normalizedCoordinates,
+                )
+            }
+        }
     }
 
     private fun beginCapture(resultCode: Int, resultData: Intent) {
@@ -208,13 +231,16 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         }
         thermalGovernor = ThermalGovernor(this).also { it.start() }
 
+        val settingsSnapshot = NativeBridge.settingsSnapshot()
+        // Both hiding modes hold from the first moment, including the notification's icon.
+        val streamerWas = streamerMode
+        streamerMode = settingsSnapshot.lineSequence().any { it.trim() == "streamerMode=1" }
+        val touchCompatWas = touchCompatMode
+        touchCompatMode = settingsSnapshot.lineSequence().any { it.trim() == "touchCompatMode=1" }
         val controller = OverlayController(this) { mainHandler.post { shutdown() } }
         overlay = controller
-        // Streamer mode set in an earlier run holds from the start, so the button is never on the screen even for a moment.
-        val streamerWas = streamerMode
-        streamerMode = NativeBridge.settingsSnapshot().lineSequence().any { it.trim() == "streamerMode=1" }
-        controller.show(streamerMode)
-        if (streamerMode != streamerWas) {
+        controller.show(streamerMode, touchCompatMode)
+        if (streamerMode != streamerWas || touchCompatMode != touchCompatWas) {
             showForegroundNotification()   // changed since the file was written
         }
 
@@ -362,6 +388,13 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         false   // no file yet: the defaults hold
     }
 
+    /** Whether the settings file says touch compatibility mode is on. Read the same way as [savedStreamerMode]. */
+    private fun savedTouchCompatMode(): Boolean = try {
+        File(filesDir, SETTINGS_FILE).useLines { lines -> lines.any { it.trim() == "touchCompatMode=1" } }
+    } catch (e: IOException) {
+        false   // no file yet: the defaults hold
+    }
+
     /** Removes the notification and ends the service. */
     private fun leaveForeground() {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -383,7 +416,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
     override fun onStreamerModeChanged(enabled: Boolean) {
         mainHandler.post {
             streamerMode = enabled
-            overlay?.setStreamerMode(enabled)
+            overlay?.setStreamerMode(streamerMode)
             if (running) {
                 showForegroundNotification()
             }
@@ -399,9 +432,8 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
     // ---------------------------------------------------------------------------------------
 
     /**
-     * Shows the notification that keeps the assist alive and has the Menu and Stop buttons. In streamer
-     * mode its small icon is empty: the system never lets a foreground service's notification out of the
-     * status bar, so what shows there must be nothing, or a recording that includes the status bar would show AimBuddy.
+     * Shows the notification that keeps the assist alive and has the Menu and Stop buttons. In either
+     * hidden mode its small icon is empty: a recording that includes the status bar must not show AimBuddy.
      */
     private fun showForegroundNotification() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -420,7 +452,7 @@ class AssistService : Service(), NativeBridge.StreamerModeListener, NativeBridge
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(if (streamerMode) R.drawable.ic_stat_blank else R.drawable.ic_stat_aim)
+            .setSmallIcon(if (streamerMode || touchCompatMode) R.drawable.ic_stat_blank else R.drawable.ic_stat_aim)
             .setOngoing(true)
             .setContentIntent(open)
             .addAction(0, getString(R.string.notification_menu), menu)

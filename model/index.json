@@ -22,6 +22,40 @@
         "size": 254,
         "sha256": "431fc039ddad148f9042284de64cd7198b27054918e1074ce60467571551b0ed"
       }
+    },
+    {
+      "id": "valorant-256-v26n",
+      "title": "Valorant 256 YOLO26n INT8",
+      "description": "Small game-specific body and head detector. INT8, 256-pixel input. Accuracy and latency require device testing.",
+      "author": "xiangsu1145",
+      "version": 1,
+      "tflite": {
+        "path": "valorant-256-v26n/model.tflite",
+        "size": 2716654,
+        "sha256": "075372fb054a6ef52bca87977645294d74ecdaaa1e16c9bf9e6c89da5fd7740d"
+      },
+      "profile": {
+        "path": "valorant-256-v26n/model.json",
+        "size": 321,
+        "sha256": "2381c009728af1a88f0703a1fb197936d7f982c663d572a79ec87582d1eba887"
+      }
+    },
+    {
+      "id": "yolo26n-pose",
+      "title": "YOLO26n Pose",
+      "description": "Finds people and verified eye, nose or shoulder points. General COCO pose model, not game-specific training.",
+      "author": "Ultralytics",
+      "version": 1,
+      "tflite": {
+        "path": "yolo26n-pose/model.tflite",
+        "size": 12233156,
+        "sha256": "2ff48db73e247675a77bfe2fb2b1ab4d3d88cb6584402f428fb210f907f226ce"
+      },
+      "profile": {
+        "path": "yolo26n-pose/model.json",
+        "size": 297,
+        "sha256": "7d5e98533bba7d8114ac8c28ad14720b752c69ee5b8e3906966cb985fff9e97e"
+      }
     }
   ]
 }

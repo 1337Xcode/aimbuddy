@@ -11,7 +11,7 @@ A model here is an object detector that finds people in a game picture. AimBuddy
 - Every downloaded file must have exactly the size and SHA-256 the index gives for it. A model is moved into place only when all of its files are complete, and the old copy is kept until then, so a failed or cut-short download never harms a model that works.
 - The app carries no model. The default one, `aimbuddy-general`, is listed here like any other, and the first time the app opens it takes the player to the models page, where a short guide says how to download it or import a model of their own.
 - `.github/workflows/models.yml` runs `python model/index.py --check` for every change under `model/`, so the index cannot drift from the files. Files are served byte for byte (`model/** -text` in `.gitattributes`), so the hashes do not depend on line-ending conversion.
-- `model.json` tells the app how to read a network's output, so any NCNN export of a YOLO-style detector works without a change to the app.
+- `model.json` tells the app how to read a network's output, so a supported NCNN or TFLite export works without a change to the app. A folder supplies exactly one complete format: `model.param` with `model.bin`, or `model.tflite`.
 
 ## Add a model
 
@@ -20,8 +20,9 @@ A model here is an object detector that finds people in a game picture. AimBuddy
 
    | File | What it is |
    | --- | --- |
-   | `model.param` | The NCNN network graph. |
-   | `model.bin` | The NCNN weights. |
+   | `model.param` | The NCNN network graph, for an NCNN model. |
+   | `model.bin` | The NCNN weights, for an NCNN model. |
+   | `model.tflite` | A TFLite model, instead of both NCNN files. |
    | `model.json` | What the model is and how to read its output (below). |
    | `icon.png` | Optional. A square PNG of at most 128 KB, shown in the store. |
 
@@ -52,10 +53,18 @@ Files are served exactly as committed, so do not change their line endings.
 
   Classes that are not listed are ignored. With no `roles`, one class means `body` and two classes mean `body` then `head`.
 - `inputSize` is the network's input size in pixels. Leave it out to have the app work it out.
-- `endToEnd` is `true` for an export that already removes duplicate boxes (output of N rows of six numbers).
+- `endToEnd` is `true` for an export that already removes duplicate boxes (output of N rows of six numbers, or the final pose layout below).
+- `normalizedCoordinates` is `true` when output coordinates are fractions of the input size, `false` for model pixels. Leave it out to infer ordinary detections; official pose defaults to pixels. A custom normalized raw-pose export must set it explicitly.
+- Supported pose layouts are raw `[1, 56, 8400]` / `[1, 8400, 56]` (centre box, person score, 17 COCO keypoint triples) and final `[1, 300, 57]` (corner box, score, class, then keypoint triples). Final pose output bypasses a second NMS. The person's role is `body`; head aiming uses a verified eye, nose or shoulder point rather than a separate head class. Low-confidence, non-finite and out-of-box keypoints never become `(0, 0)` targets.
 
-The app saves this file next to the model and reads `roles`, `inputSize` and `endToEnd` from it.
+The app saves this file next to the model and reads `roles`, `inputSize`, `endToEnd` and `normalizedCoordinates` from it. The store downloads only the selected model format and this profile.
+
+The optional `yolo26n-pose` model is a float32, 640-pixel TFLite export of Ultralytics YOLO26n-pose. It is a general COCO model, not a game-specific detector. See [its provenance and validation notes](yolo26n-pose/README.md).
+
+The optional `valorant-256-v26n` model is a 2.7 MB INT8 `body,head` detector imported from the GPL-3.0 Auto-aim_android-yolo repository. Its raw normalized output and tensor quantization have been checked on the host; see [its provenance and validation notes](valorant-256-v26n/README.md).
+
+A physical-device benchmark is still needed before promising a particular inference time.
 
 ## Licenses
 
-Only add a model whose license lets this project redistribute it. State the license of the weights in the pull request. The models the project ships are detectors trained with Ultralytics YOLO, which is licensed under AGPL-3.0.
+Only add a model whose license lets this project redistribute it. State the license of the weights in the pull request. The project's own detector and the Ultralytics pose export are AGPL-3.0; the imported Valorant model is distributed under its source repository's GPL-3.0 license, supplied alongside it.

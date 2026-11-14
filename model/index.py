@@ -1,9 +1,8 @@
 """Builds model/index.json, the list the app's store reads, from the model folders next to this file.
 
-Each folder holds model.param, model.bin and model.json (title, description, author, version, and the
-roles and inputSize the app reads), and optionally icon.png. Run `python model/index.py` after adding
-or changing a model. `python model/index.py --check` fails when index.json is out of date, which is
-what the pull request check runs.
+Each folder holds model.json and either model.param/model.bin or model.tflite, and optionally
+icon.png. Run `python model/index.py` after adding or changing a model. `python model/index.py --check`
+fails when index.json is out of date, which is what the pull request check runs.
 """
 import hashlib
 import json
@@ -20,6 +19,8 @@ MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_ICON_BYTES = 128 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 NCNN_MAGIC = b"7767517"   # first line of every NCNN .param file
+TFLITE_MAGIC_OFFSET = 4
+TFLITE_MAGIC = b"TFL3"    # FlatBuffer identifier at byte offset four
 
 
 class Problem(Exception):
@@ -61,10 +62,20 @@ def entry_for(folder):
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise Problem(f"{folder}/model.json needs a version: a whole number from 1, raised whenever the files change")
 
-    param_file, param_bytes = describe(folder, "model.param")
-    bin_file, _ = describe(folder, "model.bin")
-    if not param_bytes.startswith(NCNN_MAGIC):
-        raise Problem(f"{folder}/model.param is not an NCNN param file")
+    tflite_path = os.path.join(STORE, folder, "model.tflite")
+    is_tflite = os.path.isfile(tflite_path)
+    ncnn_path = os.path.join(STORE, folder, "model.param")
+    if is_tflite and os.path.exists(ncnn_path):
+        raise Problem(f"{folder} mixes TFLite and NCNN model files")
+    if is_tflite:
+        tflite_file, tflite_bytes = describe(folder, "model.tflite")
+        if tflite_bytes[TFLITE_MAGIC_OFFSET:TFLITE_MAGIC_OFFSET + len(TFLITE_MAGIC)] != TFLITE_MAGIC:
+            raise Problem(f"{folder}/model.tflite is not a TensorFlow Lite FlatBuffer")
+    else:
+        param_file, param_bytes = describe(folder, "model.param")
+        bin_file, _ = describe(folder, "model.bin")
+        if not param_bytes.startswith(NCNN_MAGIC):
+            raise Problem(f"{folder}/model.param is not an NCNN param file")
 
     entry = {
         "id": folder,
@@ -78,8 +89,11 @@ def entry_for(folder):
         if not icon_bytes.startswith(PNG_MAGIC) or icon_file["size"] > MAX_ICON_BYTES:
             raise Problem(f"{folder}/icon.png must be a PNG of at most {MAX_ICON_BYTES // 1024} KB")
         entry["icon"] = icon_file
-    entry["param"] = param_file
-    entry["bin"] = bin_file
+    if is_tflite:
+        entry["tflite"] = tflite_file
+    else:
+        entry["param"] = param_file
+        entry["bin"] = bin_file
     entry["profile"] = meta_file
     return entry
 

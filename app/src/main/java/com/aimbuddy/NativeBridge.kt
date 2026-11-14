@@ -84,17 +84,73 @@ object NativeBridge {
         roles: String?,
         endToEnd: Boolean,
         inputSize: Int,
+        normalizedCoordinates: Boolean?,
     ): Boolean
 
     /**
-     * Whether a pair of files can be used as a detection model: it is loaded and run once on a blank picture.
-     * Slow enough (a moment on a phone) to be called off the main thread. For a pair the player imports, so that one the
-     * detector cannot read is refused then and not at the next Start.
+     * Whether a pair of files can be used as a detection model: it is loaded and run once on a blank picture using
+     * the same profile that will be used when the assist starts. Slow enough (a moment on a phone) to be called off
+     * the main thread. A model the detector cannot read is refused then and not at the next Start.
      */
     @JvmStatic
-    external fun canReadModel(paramPath: String, binPath: String): Boolean
+    external fun canReadModel(
+        paramPath: String,
+        binPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean
 
-    /** True when the player has chosen to find targets by a colour, which needs no model. */
+    /** Loads a TFLite model while retaining its Java interpreter for the native detection thread. */
+    fun loadTFLiteModel(
+        modelPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean {
+        val runner = TFLiteModelRunner(modelPath)
+        val loaded = loadTFLiteRunner(runner, roles, endToEnd, inputSize, normalizedCoordinates)
+        if (!loaded) runner.close()
+        return loaded
+    }
+
+    /** Probes the model on a blank image with the same profile that will be used when the assist starts. */
+    fun canReadTFLiteModel(
+        modelPath: String,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean {
+        val runner = TFLiteModelRunner(modelPath)
+        return try {
+            canReadTFLiteRunner(runner, roles, endToEnd, inputSize, normalizedCoordinates)
+        } finally {
+            runner.close()
+        }
+    }
+
+    @JvmStatic
+    private external fun loadTFLiteRunner(
+        runner: TFLiteModelRunner,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean
+
+    @JvmStatic
+    private external fun canReadTFLiteRunner(
+        runner: TFLiteModelRunner,
+        roles: String?,
+        endToEnd: Boolean,
+        inputSize: Int,
+        normalizedCoordinates: Boolean?,
+    ): Boolean
+
+    /** True when colour detection can run without a model (chosen and a colour is already learned). */
     @JvmStatic
     external fun usesColourDetection(): Boolean
 

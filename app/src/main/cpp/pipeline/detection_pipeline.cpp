@@ -77,9 +77,28 @@ bool DetectionPipeline::loadModel(const std::string& paramPath, const std::strin
     if (!detector_.load(paramPath.c_str(), binPath.c_str(), profile)) {
         return false;
     }
+    tfliteDetector_.reset();
     profile_ = detector_.profile();
     if (!detectsByColour()) {
         capture_.setModelSize(detector_.inputSize());
+    }
+    return true;
+}
+
+bool DetectionPipeline::loadTFLiteModel(JNIEnv* env, jobject runner, const ModelProfile& profile) {
+    if (isRunning()) {
+        LOGE("Cannot load a model while the pipeline is running");
+        return false;
+    }
+    auto candidate = std::make_unique<TFLiteDetector>();
+    if (!candidate->load(env, runner, profile)) {
+        return false;
+    }
+    detector_.unload();
+    tfliteDetector_ = std::move(candidate);
+    profile_ = tfliteDetector_->profile();
+    if (!detectsByColour()) {
+        capture_.setModelSize(tfliteDetector_->inputSize());
     }
     return true;
 }
@@ -93,6 +112,9 @@ void DetectionPipeline::setColourDetection(bool on) {
     if (on) {
         profile_ = ModelProfile::defaultsFor(1);   // a patch of the colour is one enemy body
         capture_.setModelSize(kColourModelSize);
+    } else if (tfliteDetector_ && tfliteDetector_->isLoaded()) {
+        profile_ = tfliteDetector_->profile();
+        capture_.setModelSize(tfliteDetector_->inputSize());
     } else if (detector_.isLoaded()) {
         profile_ = detector_.profile();
         capture_.setModelSize(detector_.inputSize());
@@ -145,6 +167,9 @@ void DetectionPipeline::applyConfidenceIfChanged(float& applied) {
     const TrackerConfig config = TrackerConfig::forConfidence(requested);
     tracker_.setConfig(config);
     detector_.setMinScore(config.lowScore);
+    if (tfliteDetector_) {
+        tfliteDetector_->setMinScore(config.lowScore);
+    }
     applied = requested;
 }
 
@@ -473,6 +498,8 @@ void DetectionPipeline::run() {
     // to wait for the timing to end: it takes seconds on a slow phone.
     if (detectsByColour()) {
         backend_.store("Colour", std::memory_order_relaxed);
+    } else if (tfliteDetector_ && tfliteDetector_->isLoaded()) {
+        backend_.store(tfliteDetector_->backendName(), std::memory_order_relaxed);
     } else {
         detector_.chooseBackend([this] { return !running_.load(std::memory_order_acquire); });
         backend_.store(detector_.backendName(), std::memory_order_relaxed);
@@ -504,9 +531,15 @@ void DetectionPipeline::run() {
 #ifdef AIMBUDDY_DEBUG_HOOKS
         const bool detected = syntheticMode_.load(std::memory_order_acquire)
                                   ? detectSynthetic(*frame, batch)
-                                  : (byColour ? detectByColour(*frame, batch) : detector_.detect(*frame, batch));
+                                  : (byColour ? detectByColour(*frame, batch)
+                                              : (tfliteDetector_ && tfliteDetector_->isLoaded()
+                                                     ? tfliteDetector_->detect(*frame, batch)
+                                                     : detector_.detect(*frame, batch)));
 #else
-        const bool detected = byColour ? detectByColour(*frame, batch) : detector_.detect(*frame, batch);
+        const bool detected = byColour ? detectByColour(*frame, batch)
+                                       : (tfliteDetector_ && tfliteDetector_->isLoaded()
+                                              ? tfliteDetector_->detect(*frame, batch)
+                                              : detector_.detect(*frame, batch));
 #endif
         capture_.mailbox().endRead();  // the pixels are consumed; let the capture thread reuse the slot
         if (!detected) {

@@ -34,6 +34,10 @@ import kotlin.math.abs
  *    so the player is never locked out of the menu or of stopping. While the menu is open a secure window
  *    covers its column of the display (see [SecureShield]): a recording sees black there, and the game
  *    everywhere else.
+ *  - In touch compatibility mode (separate from streamer mode) the full screen window is not attached at all while
+ *    the menu is shut, because some games stop reacting to touches while any full screen overlay is on top of them.
+ *    The icon stays; the window is attached when the menu is asked for and detached when it closes (see
+ *    [fullScreenWindowWanted]). Capture and detection do not depend on it.
  *  - Every window is removed in [hide], which cannot fail halfway: each step is guarded.
  *
  * Use it from the main thread only.
@@ -52,7 +56,13 @@ class OverlayController(
     private val shield = SecureShield(context)
 
     private var streamerMode = false
+    private var touchCompat = false
     private var touchable = false
+
+    // Touch compatibility: the menu was asked for and waits for the freshly attached window to start drawing.
+    private var menuPending = false
+    private var pendingTicket = 0
+    private var pendingSinceMs = 0L
 
     // In streamer mode the menu waits for the secure window that covers it; a second tap on the button while it waits cancels it.
     private var opening = false
@@ -91,19 +101,38 @@ class OverlayController(
         }
     }
 
-    val isShown: Boolean get() = surface != null
+    val isShown: Boolean get() = icon != null
 
-    /** Adds both windows. Needs the overlay permission. */
-    fun show(streamerMode: Boolean) {
+    /** Adds the windows (the full screen one only if touch compatibility does not hold it back). Needs the overlay permission. */
+    fun show(streamerMode: Boolean, touchCompat: Boolean = false) {
         if (isShown) {
             return
         }
         this.streamerMode = streamerMode
+        this.touchCompat = touchCompat
         touchable = false
+        menuPending = false
         lastFrameCount = -1L
         lastFrameChangeMs = SystemClock.uptimeMillis()
 
-        val view = OverlayView(context)
+        try {
+            if (fullScreenWindowWanted(touchCompat, menuOpen = false, menuPending = false)) {
+                attachSurface()
+            }
+            addIcon()
+        } catch (e: Exception) {
+            hide()
+            throw e
+        }
+        handler.postDelayed(monitor, MONITOR_INTERVAL_MS)
+        Log.i(TAG, "Overlay shown (touch compatibility: $touchCompat)")
+    }
+
+    private fun attachSurface() {
+        if (surface != null) {
+            return
+        }
+        val view = OverlayView(context).also { it.onRendererReady = ::onRendererReady }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -119,15 +148,41 @@ class OverlayController(
         windowManager.addView(view, params)
         surface = view
         surfaceParams = params
+        touchable = false
+    }
 
-        try {
-            addIcon()
-        } catch (e: Exception) {
-            hide()
-            throw e
+    /** Takes the full screen window off the screen, so the game has nothing over it. */
+    private fun detachSurface() {
+        val view = surface ?: return
+        runCatching { OverlayNative.showMenu(false) }
+        view.onRendererReady = null
+        removeQuietly(view, "overlay")
+        surface = null
+        surfaceParams = null
+        touchable = false
+        Log.i(TAG, "Full screen window detached")
+    }
+
+    /** The window's renderer is drawing: a menu that was waiting for it can open now. */
+    private fun onRendererReady() {
+        if (!menuPending) {
+            return
         }
-        handler.postDelayed(monitor, MONITOR_INTERVAL_MS)
-        Log.i(TAG, "Overlay shown")
+        menuPending = false
+        if (surface != null) {
+            lastFrameChangeMs = SystemClock.uptimeMillis()
+            setTouchable(true)
+            OverlayNative.showMenu(true)
+        }
+    }
+
+    private fun abandonPendingMenu(reason: String) {
+        Log.w(TAG, reason)
+        menuPending = false
+        pendingTicket++
+        if (touchCompat) {
+            detachSurface()
+        }
     }
 
     /** Removes both windows. Safe to call at any time, any number of times. */
@@ -135,10 +190,13 @@ class OverlayController(
         handler.removeCallbacks(monitor)
         handler.removeCallbacks(removeShield)
         opening = false
+        menuPending = false
+        pendingTicket++
         shield.hide()
         removeIcon()
+        runCatching { OverlayNative.showMenu(false) }
         surface?.let {
-            runCatching { OverlayNative.showMenu(false) }
+            it.onRendererReady = null
             removeQuietly(it, "overlay")
         }
         surface = null
@@ -170,7 +228,7 @@ class OverlayController(
         if (!isShown) {
             return
         }
-        if (OverlayNative.wantsTouches() || opening) {
+        if (OverlayNative.wantsTouches() || opening || menuPending) {
             closeMenu()
         } else {
             openMenu()
@@ -201,6 +259,20 @@ class OverlayController(
     }
 
     private fun showMenuNow() {
+        if (surface == null) {
+            // Touch compatibility: the window comes first, and the menu opens when its renderer is up (onRendererReady).
+            try {
+                attachSurface()
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not attach the menu window: ${e.message}", e)
+                Toast.makeText(context, R.string.overlay_menu_unavailable, Toast.LENGTH_LONG).show()
+                return
+            }
+            menuPending = true
+            pendingTicket++
+            pendingSinceMs = SystemClock.uptimeMillis()
+            return
+        }
         setTouchable(true)
         OverlayNative.showMenu(true)
     }
@@ -208,6 +280,8 @@ class OverlayController(
     /** ...and the menu stops being drawn before that window goes (see releaseTouches). */
     private fun closeMenu() {
         opening = false
+        menuPending = false
+        pendingTicket++
         lastFrameChangeMs = SystemClock.uptimeMillis()
         OverlayNative.showMenu(false)
         releaseTouches()
@@ -218,11 +292,17 @@ class OverlayController(
      * must not catch a last frame of the menu, so the renderer gets time to draw the cleared picture and the system to show it.
      */
     private fun releaseTouches() {
+        if (menuPending) {
+            return
+        }
         if (touchable) {
             setTouchable(false)
         }
         if (shield.isShown && !opening) {
             scheduleShieldRemoval()
+        }
+        if (!fullScreenWindowWanted(touchCompat, menuOpen = false, menuPending = false)) {
+            detachSurface()
         }
     }
 
@@ -312,6 +392,11 @@ class OverlayController(
         if (frames != lastFrameCount) {
             lastFrameCount = frames
             lastFrameChangeMs = now
+        }
+        if (menuPending && now - pendingSinceMs > PENDING_MS) {
+            abandonPendingMenu("The menu window did not start drawing: the menu stays shut")
+            Toast.makeText(context, R.string.overlay_menu_unavailable, Toast.LENGTH_LONG).show()
+            return
         }
         val wanted = OverlayNative.wantsTouches()
         if (wanted && now - lastFrameChangeMs > STALL_MS) {
@@ -447,6 +532,7 @@ class OverlayController(
         const val ICON_START_Y = 120
         const val MONITOR_INTERVAL_MS = 100L
         const val STALL_MS = 1500L
+        const val PENDING_MS = 3000L
         const val SHIELD_RELEASE_DELAY_MS = 60L   // a few frames
         const val SHIELD_MARGIN_DP = 16
         const val HOLD_TO_STOP_MS = 1500L

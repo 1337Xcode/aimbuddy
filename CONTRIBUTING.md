@@ -32,7 +32,7 @@ flowchart LR
 Run before opening a pull request:
 
 ```powershell
-./gradlew.bat clean assembleDebug testDebugUnitTest
+./gradlew.bat clean assemblePrimaryDebug testPrimaryDebugUnitTest
 ```
 
 The C++ core (tracker, aim controller, camera motion, touch merger, decoder, settings) has its own tests that need no phone, only a C++17 compiler:

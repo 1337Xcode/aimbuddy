@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The "debug" build type's app_name override (app/src/debug/res/values/strings.xml) would
+         otherwise win over the "parallel" flavor's (app/src/parallel/res/values/strings.xml) for
+         this variant, since a build type outranks a flavor in resource merging, leaving the debug
+         builds of both flavors sharing the label "AimBuddy Debug". This combined-variant source
+         set outranks both, so parallelDebug gets its own label too. -->
+    <string name="app_name" translatable="false">AimBuddy Parallel Debug</string>
+</resources>

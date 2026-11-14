@@ -1,0 +1,10 @@
+{
+  "title": "YOLO26n Pose",
+  "description": "Finds people and verified eye, nose or shoulder points. General COCO pose model, not game-specific training.",
+  "author": "Ultralytics",
+  "version": 1,
+  "roles": ["body"],
+  "inputSize": 640,
+  "endToEnd": true,
+  "normalizedCoordinates": false
+}

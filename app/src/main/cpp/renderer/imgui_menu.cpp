@@ -977,6 +977,10 @@ void drawColourDot(const ImVec2& topLeft, float diameter, const Settings& s) {
  * Draws the dot, what is known of the colour, and the button that learns it. They share a line when the card is wide
  * enough; when it is not, the button gets a line of its own across the card. Returns true when the button was tapped.
  */
+bool overlayHidden(const Settings& s) {
+    return s.streamerMode || s.touchCompatMode;
+}
+
 bool drawColourRow(const Settings& s) {
     const float font = ImGui::GetFontSize();
     const float dot = kColourDotEm * font;
@@ -993,7 +997,7 @@ bool drawColourRow(const Settings& s) {
     drawColourDot(row, dot, s);
     ImGui::SetCursorScreenPos(ImVec2(row.x + dot + gap, row.y + 0.5f * (dot - ImGui::GetTextLineHeight())));
     ImGui::TextUnformatted(status);
-    ImGui::BeginDisabled(s.streamerMode);   // picking a colour draws over the game
+    ImGui::BeginDisabled(overlayHidden(s));   // picking a colour draws over the game
     bool tapped = false;
     if (sideBySide) {
         ImGui::SetCursorScreenPos(ImVec2(row.x + rowWidth - buttonWidth, row.y + 0.5f * (dot - buttonHeight)));
@@ -1020,7 +1024,7 @@ bool drawColourSection(Settings& s) {
     changed |= menu::Slider(T(Key::ColourTolerance), &s.colourTolerance, 4.0f, 40.0f, "%.0f deg");
     changed |= menu::Slider(T(Key::ColourMinHeight), &s.colourMinHeight, 10.0f, 300.0f, "%.0f px");
     menu::EndCard();
-    menu::Footnote(T(s.streamerMode ? Key::NotInStreamerMode : Key::LearnColourHint));
+    menu::Footnote(T(overlayHidden(s) ? Key::NotInStreamerMode : Key::LearnColourHint));
     return changed;
 }
 
@@ -1099,22 +1103,22 @@ bool drawAimTab(Settings& s) {
     ImGui::SeparatorText(T(Key::TouchAreaTitle));
     ImGui::TextWrapped("%s", T(Key::TouchAreaHint));
     const ImVec2 buttonSize(menu::ContentWidth(), kPageButtonEm * ImGui::GetFontSize());
-    ImGui::BeginDisabled(s.streamerMode);   // the editor draws over the game
+    ImGui::BeginDisabled(overlayHidden(s));   // the editor draws over the game
     if (menu::PillButton(T(Key::MoveTouchArea), buttonSize, menu::PillStyle::kTinted)) {
         openZoneEditor();
     }
-    ImGui::EndDisabled();
     if (menu::PillButton(T(Key::ResetTouchArea), buttonSize, menu::PillStyle::kTinted)) {
         resetZone(s);
         changed = true;
-    }
-    if (s.streamerMode) {
-        menu::Footnote(T(Key::NotInStreamerMode));
     }
     if (ImGui::CollapsingHeader(T(Key::FineTune))) {
         changed |= menu::Slider(T(Key::AnchorX), &s.anchorX, 0.05f, 0.95f, "%.2f");
         changed |= menu::Slider(T(Key::AnchorY), &s.anchorY, 0.05f, 0.95f, "%.2f");
         changed |= menu::Slider(T(Key::AnchorSize), &s.anchorRadius, 50.0f, 500.0f, "%.0f px");
+    }
+    ImGui::EndDisabled();
+    if (overlayHidden(s)) {
+        menu::Footnote(T(Key::NotInStreamerMode));
     }
     return changed;
 }
@@ -1463,9 +1467,9 @@ Java_com_aimbuddy_OverlayNative_drawFrame(JNIEnv* /* env */, jclass /* clazz */)
         const ImVec2 origin(static_cast<float>(g_overlayOriginX.load(std::memory_order_relaxed)),
                             static_cast<float>(g_overlayOriginY.load(std::memory_order_relaxed)));
         int bodyCount = 0;
-        if (settings.streamerMode) {
-            // Streamer mode draws nothing over the game, so a recording, and AimBuddy's own capture, see it as it
-            // is. The menu is all that shows, and Kotlin hides it from captures with a secure window of its size.
+        if (settings.streamerMode || settings.touchCompatMode) {
+            // Both hidden modes draw nothing over the game. The menu is all that shows, and Kotlin hides it from
+            // captures with a secure window of its size.
             abandonSetupTools();
             aimbuddy::TrackView views[aimbuddy::kMaxTracks];
             bodyCount = countBodies(views, collectTargets(views));

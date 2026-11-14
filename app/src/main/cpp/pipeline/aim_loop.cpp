@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "../core/display_bounds.h"
 #include "../utils/logger.h"
 
 namespace aimbuddy {
@@ -208,12 +209,26 @@ PlayerInput AimLoop::readPlayer(int64_t nowNs) {
 }
 
 void AimLoop::sendOutput(const AimOutput& output) {
+    const Display display = currentDisplay();
+    float x = output.x;
+    float y = output.y;
+    if (!clampDisplayPoint(&x, &y, display.width, display.height)) {
+        // A bad target or response estimate must not become a real input event. Release the touch
+        // and clear the controller's pursuit and filter state before another touch can begin.
+        if (output.action != AimAction::kNone) {
+            LOGW("Rejected invalid touch output; releasing the assist finger");
+            link_->aimUp();
+            controller_.release();
+            (void)controller_.step(steadyNowNs(), *tracker_, *profile_, PlayerInput());
+        }
+        return;
+    }
     switch (output.action) {
         case AimAction::kTouchDown:
-            link_->aimDown(output.x, output.y);
+            link_->aimDown(x, y);
             break;
         case AimAction::kTouchMove:
-            link_->aimMove(output.x, output.y);
+            link_->aimMove(x, y);
             break;
         case AimAction::kTouchUp:
             link_->aimUp();

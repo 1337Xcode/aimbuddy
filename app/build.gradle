@@ -172,6 +172,28 @@ android {
         }
     }
 
+    // A second, separately-installable copy of the app.
+    //
+    // Android tells two APKs apart by applicationId, not by anything else, so the "parallel"
+    // flavor below only has to change that (plus the label, so the two are tellable apart on the
+    // home screen) to install next to the "primary" flavor without replacing or conflicting with
+    // it. Its own app data (settings, models, Shizuku pairing) is separate too, since that is also
+    // keyed by applicationId. Build it with ./gradlew.bat assembleParallelRelease.
+    //
+    // The flavor that keeps applicationId "com.aimbuddy" cannot be named "main": AGP already
+    // reserves that name for the default source set, and a flavor of the same name collides with
+    // it ("Multiple entries with same key: main=[] and main=[]" from the generated-icon task).
+    flavorDimensions = ["install"]
+    productFlavors {
+        primary {
+            dimension "install"
+        }
+        parallel {
+            dimension "install"
+            applicationIdSuffix ".parallel"
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path = 'src/main/cpp/CMakeLists.txt'
@@ -273,6 +295,9 @@ dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
     // StateFlow, which carries the assist's state from the service to the screen
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    // TFLite acceleration with a retained XNNPACK CPU fallback.
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.14.0'
     // Debug-only: keep tooling preview off the release build
     debugImplementation 'androidx.compose.ui:ui-tooling-preview'
     debugImplementation 'androidx.compose.ui:ui-tooling'

@@ -116,11 +116,13 @@ bool YoloDetector::probeOutput(ncnn::Net& net) {
             continue;
         }
         DecodeSpec spec;
-        if (!inferDecodeSpec(tensorData(output), output.h, output.w, profile_.endToEndOutput, &spec)) {
+        if (!inferDecodeSpec(tensorData(output), output.h, output.w, profile_.endToEndOutput,
+                             profile_.normalizedCoordinates, &spec)) {
             continue;
         }
         const int anchors = spec.layout == OutputLayout::kChannelsFirst ? output.w : output.h;
-        if (spec.layout != OutputLayout::kEndToEnd && inferInputSize(anchors) != size) {
+        if (spec.layout != OutputLayout::kEndToEnd && spec.layout != OutputLayout::kPoseEndToEnd &&
+            inferInputSize(anchors) != size) {
             LOGW("Model output has %d anchors, unusual for a %d px input", anchors, size);
         }
         spec_ = spec;
@@ -158,9 +160,15 @@ bool YoloDetector::load(const char* paramPath, const char* binPath, const ModelP
         // No description saved with the model: guess the roles from how many classes it has.
         const bool endToEnd = profile_.endToEndOutput;
         const int inputSize = profile_.inputSize;
-        profile_ = ModelProfile::defaultsFor(spec_.layout == OutputLayout::kEndToEnd ? 1 : spec_.classCount);
+        const int normalized = profile_.normalizedCoordinates;
+        profile_ = ModelProfile::defaultsFor(spec_.layout == OutputLayout::kEndToEnd ||
+                                                     spec_.layout == OutputLayout::kPose ||
+                                                     spec_.layout == OutputLayout::kPoseEndToEnd
+                                                 ? 1
+                                                 : spec_.classCount);
         profile_.endToEndOutput = endToEnd;
         profile_.inputSize = inputSize;
+        profile_.normalizedCoordinates = normalized;
     } else if (spec_.layout != OutputLayout::kEndToEnd && profile_.declaredClassCount != spec_.classCount) {
         LOGW("Model has %d classes but its description lists %d", spec_.classCount, profile_.declaredClassCount);
     }

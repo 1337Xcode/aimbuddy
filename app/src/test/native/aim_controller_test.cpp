@@ -1,10 +1,141 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "simulated_game.h"
 #include "test_harness.h"
 
 using namespace simulation;
+
+namespace {
+
+/// A target confirmed by the real tracker and far enough away to demand a large correction.
+void prepareLargeTarget(AimController* controller, Tracker* tracker, const ModelProfile& profile) {
+    controller->setCrosshair(1200.0f, 540.0f);
+    for (int i = 0; i < 6; ++i) {
+        Detection d;
+        d.x = 1600.0f;
+        d.y = 5000.0f;
+        d.width = 60.0f;
+        d.height = 10000.0f;
+        d.score = 0.9f;
+        tracker->update(&d, 1, i * 16 * kMs, nullptr);
+    }
+    CHECK(controller->step(100 * kMs, *tracker, profile, PlayerInput()).action == AimAction::kTouchDown);
+}
+
+}  // namespace
+
+TEST(an_enormous_vertical_target_error_cannot_make_a_runaway_touch_delta) {
+    AimSettings settings = baseSettings();
+    settings.fovRadiusPx = 20000.0f;    // let the fixture acquire its deliberately enormous target
+    settings.anchorRadiusPx = 100000.0f;  // isolate delta limiting from the normal touch-area re-centre
+    CameraMotion motion;
+    motion.setPrior({1.5f, 1.5f, 0.05f, false}, false);
+    AimController controller(settings, &motion);
+    controller.setCrosshair(1200.0f, 540.0f);
+    Tracker tracker;
+    const ModelProfile profile = ModelProfile::defaultsFor(1);
+    controller.setCrosshair(1200.0f, -200000.0f);
+    prepareLargeTarget(&controller, &tracker, profile);
+    controller.setCrosshair(1200.0f, 540.0f);
+
+    float fingerX = settings.anchorX;
+    float fingerY = settings.anchorY;
+    float firstVerticalMove = -1.0f;
+    for (int i = 0; i < 50; ++i) {
+        const AimOutput out = controller.step((108 + i * 8) * kMs, tracker, profile, PlayerInput());
+        CHECK(std::isfinite(out.x) && std::isfinite(out.y));
+        if (out.action == AimAction::kTouchMove) {
+            const float dx = out.x - fingerX;
+            const float dy = out.y - fingerY;
+            CHECK(std::fabs(dx) <= settings.maxFingerStepXPx);
+            CHECK(std::fabs(dy) <= settings.maxFingerStepYPx);
+            if (firstVerticalMove < 0.0f) firstVerticalMove = std::fabs(dy);
+            fingerX = out.x;
+            fingerY = out.y;
+        }
+    }
+    CHECK(firstVerticalMove > 0.0f);
+    // Existing speed limiting can saturate the vertical cap before the low-pass filter.
+    CHECK(firstVerticalMove <= settings.maxFingerStepYPx);
+}
+
+TEST(a_finite_camera_response_and_corrupt_y_gain_cannot_move_the_finger) {
+    constexpr float invalid[] = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity(),
+    };
+    for (const float gainY : invalid) {
+        AimSettings settings = baseSettings();
+        settings.fovRadiusPx = 20000.0f;  // fixture-only acquisition range
+        CameraMotion motion;
+        motion.setPrior({1.5f, gainY, 0.05f, false}, false);
+        AimController controller(settings, &motion);
+        controller.setCrosshair(1200.0f, 540.0f);
+        Tracker tracker;
+        const ModelProfile profile = ModelProfile::defaultsFor(1);
+        controller.setCrosshair(1200.0f, -200000.0f);
+        prepareLargeTarget(&controller, &tracker, profile);
+        controller.setCrosshair(1200.0f, 540.0f);
+        const AimOutput out = controller.step(108 * kMs, tracker, profile, PlayerInput());
+        CHECK(out.action != AimAction::kTouchMove);
+        CHECK_NEAR(controller.telemetry().fingerY, settings.anchorY, 0.0f);
+    }
+}
+
+TEST(vertical_damping_releases_as_soon_as_the_correction_decelerates) {
+    AimSettings settings = baseSettings();
+    settings.zone = AimZone::kCenter;
+    settings.anchorRadiusPx = 100000.0f;
+    CameraMotion motion;
+    motion.setPrior({1.5f, 1.5f, 0.05f, false}, false);
+    AimController controller(settings, &motion);
+    controller.setCrosshair(1200.0f, 540.0f);
+    Tracker tracker;
+    const ModelProfile profile = ModelProfile::defaultsFor(1);
+    for (int i = 0; i < 6; ++i) {
+        Detection d;
+        d.x = 1170.0f;
+        d.y = 240.0f;
+        d.width = 60.0f;
+        d.height = 180.0f;
+        d.score = 0.9f;
+        tracker.update(&d, 1, i * 16 * kMs, nullptr);
+    }
+    CHECK(controller.step(100 * kMs, tracker, profile, PlayerInput()).action == AimAction::kTouchDown);
+    controller.step(108 * kMs, tracker, profile, PlayerInput());
+
+    // Once on target, the existing dynamic dead zone must stop all movement immediately. In
+    // particular, no previous vertical filter sample may keep pulling the pointer upwards.
+    controller.setCrosshair(1200.0f, 330.0f);
+    const float yBeforeStop = controller.telemetry().fingerY;
+    const AimOutput stopped = controller.step(116 * kMs, tracker, profile, PlayerInput());
+    CHECK(stopped.action != AimAction::kTouchMove);
+    CHECK_NEAR(controller.telemetry().fingerY, yBeforeStop, 0.001f);
+}
+
+TEST(a_still_target_within_the_dynamic_deadzone_does_not_start_a_touch) {
+    AimSettings settings = baseSettings();
+    settings.zone = AimZone::kCenter;
+    CameraMotion motion;
+    AimController controller(settings, &motion);
+    controller.setCrosshair(1200.0f, 540.0f);
+    Tracker tracker;
+    const ModelProfile profile = ModelProfile::defaultsFor(1);
+    for (int i = 0; i < 6; ++i) {
+        Detection d;
+        d.x = 1170.0f;
+        d.y = 450.0f;  // head at 450: exactly at the crosshair
+        d.width = 60.0f;
+        d.height = 180.0f;
+        d.score = 0.9f;
+        tracker.update(&d, 1, i * 16 * kMs, nullptr);
+    }
+    CHECK(controller.step(100 * kMs, tracker, profile, PlayerInput()).action == AimAction::kNone);
+    CHECK(!controller.isTouching());
+}
 
 TEST(aim_settles_on_a_still_target_without_wobble) {
     SimulatedGame game({1.5f, 0.05f}, baseSettings(), stationary(300.0f, -150.0f));

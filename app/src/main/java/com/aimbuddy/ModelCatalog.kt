@@ -14,6 +14,11 @@ enum class ModelSource {
     STORE
 }
 
+enum class ModelFormat {
+    NCNN,
+    TFLITE
+}
+
 /** A model on the phone. [version] is the store's version number; 0 for a model the player imported. */
 data class InstalledModel(
     val id: String,
@@ -24,9 +29,14 @@ data class InstalledModel(
     val binPath: String,
     val totalSizeBytes: Long,
     val version: Int = 0,
+    val format: ModelFormat = ModelFormat.NCNN,
+    val tflitePath: String? = null,
 ) {
     /** True when the model's files are there to be loaded. */
-    fun canUse(): Boolean = File(paramPath).exists() && File(binPath).exists()
+    fun canUse(): Boolean = when (format) {
+        ModelFormat.NCNN -> File(paramPath).exists() && File(binPath).exists()
+        ModelFormat.TFLITE -> !tflitePath.isNullOrBlank() && File(tflitePath).exists()
+    }
 }
 
 /**
@@ -150,14 +160,15 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
     /** Deletes a model's files, and its folder when the model has one of its own. */
     private fun deleteFiles(model: InstalledModel) {
         try {
-            val file = File(model.paramPath)
+            val modelPath = if (model.format == ModelFormat.TFLITE) model.tflitePath.orEmpty() else model.paramPath
+            val file = File(modelPath)
             val folder = file.parentFile
             if (folder != null && folder.name == model.id && folder.parentFile?.name == "models") {
                 folder.deleteRecursively()
             } else {
                 file.delete()
             }
-            File(model.binPath).delete()
+            if (model.format == ModelFormat.NCNN) File(model.binPath).delete()
         } catch (_: Exception) {
             // The files are only leftovers once the model is off the list.
         }
@@ -176,8 +187,12 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             val obj = arr.optJSONObject(i) ?: continue
             val paramPath = obj.optString("paramPath")
             val binPath = obj.optString("binPath")
+            val format = if (obj.optString("format") == ModelFormat.TFLITE.name) ModelFormat.TFLITE else ModelFormat.NCNN
+            val tflitePath = obj.optString("tflitePath").takeIf { it.isNotBlank() }
             // An earlier build kept the model it shipped with on this list, with no files of its own.
-            if (paramPath.isBlank() || binPath.isBlank()) {
+            if (format == ModelFormat.TFLITE && tflitePath == null ||
+                format == ModelFormat.NCNN && (paramPath.isBlank() || binPath.isBlank())
+            ) {
                 continue
             }
             out.add(
@@ -190,6 +205,8 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
                     binPath = binPath,
                     totalSizeBytes = obj.optLong("totalSizeBytes", 0L),
                     version = obj.optInt("version", 0),
+                    format = format,
+                    tflitePath = tflitePath,
                 )
             )
         }
@@ -206,6 +223,8 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             obj.put("source", model.source.name)
             obj.put("paramPath", model.paramPath)
             obj.put("binPath", model.binPath)
+            obj.put("format", model.format.name)
+            if (model.tflitePath != null) obj.put("tflitePath", model.tflitePath)
             obj.put("totalSizeBytes", model.totalSizeBytes)
             obj.put("version", model.version)
             arr.put(obj)

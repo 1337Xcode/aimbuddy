@@ -46,6 +46,10 @@ struct AimSettings {
 
     // --- Fine tuning ---
     float maxFingerSpeedPxS = 3200.0f;  ///< Ceiling on finger speed at full strength.
+    float maxFingerStepXPx = 16.0f;     ///< Hard cap on one horizontal control update, independent of error size.
+    float maxFingerStepYPx = 6.0f;      ///< Hard cap on one vertical update; deliberately smaller to contain Y spikes.
+    float smoothingTimeXS = 0.004f;     ///< Low-pass time constant for horizontal finger travel.
+    float smoothingTimeYS = 0.036f;     ///< Stronger vertical damping for noisy keypoint errors.
     float deadzoneMinPx = 2.0f;         ///< No movement when this close to the aim point...
     float deadzoneBoxFraction = 0.04f;  ///< ...or this fraction of the target's height, whichever is larger.
     float lockLossSeconds = 0.15f;      ///< How long a lost target is waited for before letting go.
@@ -237,7 +241,7 @@ private:
     void endRun();
     void forgetFinger();
     FingerStep planFingerStep(int64_t nowNs, const CameraResponse& response, const Pursuit& pursuit,
-                              const PlayerInput& player, float dt) const;
+                              const PlayerInput& player, float dt);
     AimOutput moveFinger(int64_t nowNs, float dt, const Pursuit& pursuit, FingerStep step);
     AimOutput lift();
     void noteFinger();
@@ -303,6 +307,8 @@ private:
     bool releaseRequested_ = false;
     float fingerX_ = 0.0f;
     float fingerY_ = 0.0f;
+    float previousStepX_ = 0.0f;  ///< Filter state, cleared whenever the target is reached or touch is released.
+    float previousStepY_ = 0.0f;
     int64_t lastStepNs_ = 0;
 
     // Swing detection: times the error crossed zero by a clear margin, and the side it was last on.

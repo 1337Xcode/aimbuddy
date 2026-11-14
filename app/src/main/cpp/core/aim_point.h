@@ -88,6 +88,9 @@ inline const TrackView* findHeadFor(const TrackView& body, const TrackView* view
  * the shape of the visible box with aimFractionFromTop().
  */
 inline AimPoint chooseAimPoint(const TrackView& body, const TrackView* head, AimZone zone) {
+    if (body.hasAimPoint && zone == AimZone::kHead) {
+        return {body.aimX, body.aimY};
+    }
     if (head != nullptr && zone != AimZone::kCenter) {
         const float halfW = body.width * 0.5f;
         const float top = body.centerY - body.height * 0.5f;

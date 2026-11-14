@@ -2,6 +2,7 @@ package com.aimbuddy
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -61,12 +62,45 @@ class ModelStoreInstallTest {
 
         val files = serving().install(model, target) { done, total -> seen += done to total }
 
-        assertEquals(paramBytes.size.toLong(), files.param.length())
-        assertEquals(binBytes.size.toLong(), files.bin.length())
+        assertEquals(paramBytes.size.toLong(), files.param!!.length())
+        assertEquals(binBytes.size.toLong(), files.bin!!.length())
         assertTrue(File(target, "model.json").isFile)
         val total = (paramBytes.size + binBytes.size + profileBytes.size).toLong()
         assertTrue(seen.all { it.second == total })
         assertEquals(seen.map { it.first }.sorted(), seen.map { it.first })   // never goes back
+        assertEquals(total, seen.last().first)
+    }
+
+    @Test
+    fun aTFLiteInstallDoesNotDownloadOrReportAnNcnnPair() {
+        val tfliteBytes = ByteArray(80_000) { (it % 223).toByte() }
+        val pose = StoreModelDefinition(
+            id = "pose",
+            title = "Pose",
+            description = "",
+            author = "",
+            version = 1,
+            icon = null,
+            tflite = storeFile("model.tflite", tfliteBytes),
+            profile = storeFile("model.json", profileBytes),
+        )
+        val requested = mutableListOf<String>()
+        val repository = ModelStoreRepository(baseUrl, folder.newFolder("tflite-cache"), { url ->
+            requested += url
+            ByteArrayInputStream(if (url.endsWith("model.tflite")) tfliteBytes else profileBytes)
+        }) { error("no index") }
+        val target = File(folder.root, "models/pose")
+        val seen = mutableListOf<Pair<Long, Long>>()
+
+        val files = repository.install(pose, target) { done, total -> seen += done to total }
+
+        assertEquals(tfliteBytes.size.toLong(), files.tflite!!.length())
+        assertNull(files.param)
+        assertNull(files.bin)
+        assertTrue(File(target, "model.json").isFile)
+        assertEquals(2, requested.size)
+        val total = (tfliteBytes.size + profileBytes.size).toLong()
+        assertTrue(seen.all { it.second == total })
         assertEquals(total, seen.last().first)
     }
 

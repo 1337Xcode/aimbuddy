@@ -117,7 +117,7 @@ bool replay(const std::string& folder, double perSecond, double latencyMs, float
     }
 
     DecodeSpec spec;
-    if (!inferDecodeSpec(raw.data(), meta.rows, meta.cols, meta.endToEnd, &spec)) {
+    if (!inferDecodeSpec(raw.data(), meta.rows, meta.cols, meta.endToEnd, -1, &spec)) {
         std::fprintf(stderr, "%s: the output is not a detector's\n", folder.c_str());
         return false;
     }

@@ -116,7 +116,7 @@ Keep this organization intact unless a task explicitly requests structural chang
 Run:
 
 ```powershell
-./gradlew.bat clean assembleDebug
+./gradlew.bat clean assemblePrimaryDebug
 ```
 
 ### Training changes
