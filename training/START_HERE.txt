@@ -1,0 +1,264 @@
+╔════════════════════════════════════════════════════════════════════╗
+║                                                                    ║
+║   🚀 AimBuddy YOLO26n Annotation Pipeline - START HERE 🚀         ║
+║                                                                    ║
+║           نظام معالجة البيانات الكامل لـ YOLO26n-Pose              ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+
+📌 QUICK SUMMARY
+═══════════════════════════════════════════════════════════════════
+
+✅ تم إنشاء:
+   • 3 Python Agents متخصصة
+   • هيكل مشروع كامل
+   • 4 ملفات توثيق شاملة
+   • معايير توسيم مفصلة
+   • سكريبتات Windows + Linux
+
+🎯 النتيجة النهائية:
+   مجموعة بيانات عالية الجودة جاهزة للتدريب فوراً
+
+
+🚀 STEP 1: READ FIRST (5 MIN)
+═══════════════════════════════════════════════════════════════════
+
+اقرأ ملف البدء السريع:
+┌─ QUICK_START.md
+└─ يحتوي على كل ما تحتاجه للبدء الفوري
+
+
+🔧 STEP 2: SETUP (2 MIN)
+═══════════════════════════════════════════════════════════════════
+
+Windows PowerShell:
+$ cd training
+$ pip install -r requirements.txt
+
+Linux/Mac:
+$ cd training
+$ pip install -r requirements.txt
+
+
+📸 STEP 3: PREPARE IMAGES (5 MIN)
+═══════════════════════════════════════════════════════════════════
+
+ضع صور Valorant و CS:GO في:
+
+training/
+└── dataset/
+    └── raw/
+        └── screenshots/
+            ├── valorant/      ← صور Valorant
+            ├── csgo/          ← صور CS:GO
+            └── other_games/   ← (اختياري)
+
+
+🚀 STEP 4: RUN PIPELINE (5-10 MIN)
+═══════════════════════════════════════════════════════════════════
+
+Windows:
+$ cd training\scripts
+$ 00_annotation_pipeline.bat
+
+Linux/Mac:
+$ cd training/scripts
+$ bash 00_annotation_pipeline.sh
+
+→ سيقوم بـ:
+  1. تنظيف الصور (حذف الكرار والضبابية)
+  2. توجيه البيانات النظيفة للتوسيم اليدوي
+  3. فحص جودة التوسيم
+  4. تقسيم 70/20/10
+  5. إنشاء ملف YAML للتدريب
+
+
+✏️ STEP 5: ANNOTATE MANUALLY (30-60 MIN)
+═══════════════════════════════════════════════════════════════════
+
+استخدم أحد هذه الأدوات:
+
+OPTION A: CVAT (مفتوح المصدر)
+─────────────────────────────
+🌐 https://cvat.ai
+✅ أفضل خيار
+✅ دعم كامل للـ YOLO-Pose
+✅ تصدير مباشر
+
+OPTION B: Roboflow
+──────────────────
+🌐 https://roboflow.com
+✅ واجهة سهلة جداً
+✅ تصدير سريع
+❌ نسخة مجانية محدودة
+
+📋 قواعس التوسيم في:
+└─ dataset/annotated/annotations/annotation_guidelines.md
+
+📝 ملخص سريع:
+├─ وسّم Bounding Box حول الخصم
+├─ حدد 5 نقاط مفصلية:
+│  0️⃣  Head Center (الأهم!)
+│  1️⃣  Left Shoulder
+│  2️⃣  Right Shoulder
+│  3️⃣  Torso Center
+│  4️⃣  Weapon Position
+└─ صدّر بصيغة YOLO-Pose
+
+💾 انسخ الملفات إلى:
+├─ dataset/annotated/images/       ← الصور
+└─ dataset/annotated/labels/       ← ملفات .txt
+
+
+📊 STEP 6: RUN QA & FINALIZE (2-3 MIN)
+═══════════════════════════════════════════════════════════════════
+
+عندما تنتهي من التوسيم:
+
+$ python src/qa_export_agent.py \
+    --annotated dataset/annotated \
+    --qa-dir qa_reports
+
+$ python src/dataset_splitter.py \
+    --annotated dataset/annotated \
+    --splits dataset/splits
+
+→ سيُنشئ:
+  ✅ dataset/splits/train/    (70%)
+  ✅ dataset/splits/val/      (20%)
+  ✅ dataset/splits/test/     (10%)
+  ✅ dataset/splits/dataset.yaml  ← مهم جداً!
+
+
+🎓 STEP 7: TRAIN YOUR MODEL
+═══════════════════════════════════════════════════════════════════
+
+الآن يمكنك البدء بالتدريب:
+
+$ python src/train.py \
+    --data dataset/splits/dataset.yaml \
+    --epochs 180 \
+    --imgsz 640 \
+    --batch 16
+
+أو استخدم السكريبت المعد:
+$ scripts/04_train_adaptive.bat
+
+
+═════════════════════════════════════════════════════════════════════
+📁 IMPORTANT FILES
+═════════════════════════════════════════════════════════════════════
+
+START HERE:
+└─ QUICK_START.md               ⭐ البدء السريع
+
+DOCUMENTATION:
+├─ ANNOTATION_PIPELINE.md       📖 دليل شامل
+├─ WORKFLOW_CHECKLIST.md        ✅ قائمة مهام
+└─ SETUP_COMPLETE.md            📌 ملخص الإنجازات
+
+SCRIPTS:
+├─ src/data_cleaner.py          🔧 فلترة البيانات
+├─ src/qa_export_agent.py       🔍 فحص الجودة
+├─ src/dataset_splitter.py      📂 تقسيم البيانات
+├─ scripts/00_annotation_pipeline.bat  (Windows)
+└─ scripts/00_annotation_pipeline.sh   (Linux)
+
+STANDARDS:
+├─ dataset/annotated/annotations/annotation_guidelines.md
+├─ dataset/annotated/annotations/keypoints_schema.json
+└─ dataset/annotated/annotations/annotation_stats.json
+
+CONFIG:
+└─ sub_agents_config.py         ⚙️ تكوين Agents
+
+
+═════════════════════════════════════════════════════════════════════
+⏱️ TIMELINE
+═════════════════════════════════════════════════════════════════════
+
+التشغيل الكامل لـ 50 صورة:
+
+Step 1 (Read)           5 min
+Step 2 (Setup)          2 min
+Step 3 (Prepare)        5 min
+Step 4 (Pipeline)       5 min
+Step 5 (Annotate)       45 min    ← معظم الوقت هنا!
+Step 6 (QA & Split)     3 min
+───────────────────────────────
+Total                   65 min
+
+
+═════════════════════════════════════════════════════════════════════
+💡 KEY TIPS
+═════════════════════════════════════════════════════════════════════
+
+✅ جودة > كمية
+   100 صورة مثالية أفضل من 1000 صورة سيئة
+
+✅ Head Center = الأهم
+   ركّز على دقة مركز الرأس (Pixel-perfect)
+
+✅ الاتساق حاسم
+   استخدم نفس الأسلوب عبر كل الصور
+
+✅ راجع التقارير
+   تحقق من qa_reports/ للمشاكل
+
+✅ اطلب مساعدة
+   إذا كنت في شك، اقرأ annotation_guidelines.md
+
+
+═════════════════════════════════════════════════════════════════════
+🔗 NEXT STEPS
+═════════════════════════════════════════════════════════════════════
+
+→ اقرأ QUICK_START.md الآن
+→ ضع الصور في dataset/raw/screenshots/
+→ شغّل 00_annotation_pipeline.bat أو .sh
+→ وسّم الصور يدويًا
+→ راجع التقارير
+→ ابدأ التدريب
+
+
+═════════════════════════════════════════════════════════════════════
+📞 QUICK REFERENCE
+═════════════════════════════════════════════════════════════════════
+
+تنظيف البيانات:
+$ python src/data_cleaner.py --input dataset/raw/screenshots
+
+فحص الجودة:
+$ python src/qa_export_agent.py --annotated dataset/annotated
+
+تقسيم البيانات:
+$ python src/dataset_splitter.py --annotated dataset/annotated
+
+تشغيل Pipeline الكامل:
+Windows: cd scripts && 00_annotation_pipeline.bat
+Linux:   cd scripts && bash 00_annotation_pipeline.sh
+
+
+═════════════════════════════════════════════════════════════════════
+✨ FINAL STATUS
+═════════════════════════════════════════════════════════════════════
+
+✅ Structure:        COMPLETE
+✅ Agents:           CREATED (3)
+✅ Documentation:    COMPLETE
+✅ Standards:        DEFINED
+✅ Pipeline:         READY
+✅ Configuration:    SET
+
+🟢 STATUS: READY TO USE IMMEDIATELY!
+
+═════════════════════════════════════════════════════════════════════
+
+البدء الآن! اقرأ QUICK_START.md
+
+Created: 2026-11-06
+Model: YOLO26n-Pose
+Version: 1.0
+
+═════════════════════════════════════════════════════════════════════
