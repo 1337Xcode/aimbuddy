@@ -32,6 +32,8 @@ extern "C" {
 // Enable XNNPACK acceleration for FULLY_CONNECTED operator with dynamic
 // weights.
 #define TFLITE_XNNPACK_DELEGATE_FLAG_DYNAMIC_FULLY_CONNECTED 0x00000008
+// Enable XNNPACK acceleration for variable handle, read and assignment operators.
+#define TFLITE_XNNPACK_DELEGATE_FLAG_VARIABLE_OPERATORS 0x00000010
 
 struct TfLiteXNNPackDelegateWeightsCache;
 
@@ -39,6 +41,8 @@ typedef struct {
   // Number of threads to use in the thread pool.
   // 0 or negative value means no thread pool used.
   int32_t num_threads;
+  // Flags to pass to `xnn_create_runtime`.
+  uint32_t runtime_flags;
   // Bitfield with any combination of the following binary options:
   // - TFLITE_XNNPACK_DELEGATE_FLAG_QS8
   // - TFLITE_XNNPACK_DELEGATE_FLAG_QU8
@@ -48,9 +52,17 @@ typedef struct {
   // Cache for packed weights, can be shared between multiple instances of
   // delegates.
   struct TfLiteXNNPackDelegateWeightsCache* weights_cache;
-  // Whether READ_VARIABLE, ASSIGN_VARIABLE, and VARIABLE_HANDLE operations
-  // should be handled by XNNPACK.
+  // Deprecated. Use TFLITE_XNNPACK_DELEGATE_FLAG_VARIABLE_OPERATORS instead.
   bool handle_variable_ops;
+  // Path to the weight cache to load.
+  const char* weight_cache_file_path;
+  // Explicit file descriptor for the weight cache. Ownership is transferred to
+  // the delegate's weight cache.
+  int weight_cache_file_descriptor;
+  // Existing weight cache provider. Ownership remains with the caller.
+  void* weight_cache_provider;
+  // Whether to memory lock a memory-mapped weight cache.
+  bool weight_cache_lock_memory;
 } TfLiteXNNPackDelegateOptions;
 
 // Returns a structure with the default XNNPack delegate options.

@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace aimbuddy {
 
@@ -25,8 +26,24 @@ float float16ToFloat(uint16_t value);
 uint16_t floatToFloat16(float value);
 
 /// Resizes an RGBA square to packed NHWC RGB, with NCNN-compatible half-pixel bilinear sampling.
-/// `out` must hold inputSize * inputSize * 3 bytes. No allocation is performed.
-void resizeRgbRgba(const uint8_t* rgba, int side, int stride, int inputSize, uint8_t* out);
+/// Coordinates and weights are cached when the frame size changes; resize() does not allocate.
+class RgbResizer {
+public:
+    bool configure(int sourceSide, int targetSide);
+    void resize(const uint8_t* rgba, int stride, uint8_t* out) const;
+    void clear();
+
+private:
+    struct Sample {
+        int source = 0;
+        int weight0 = 0;
+        int weight1 = 0;
+    };
+    int sourceSide_ = 0;
+    int targetSide_ = 0;
+    std::vector<Sample> horizontal_;
+    std::vector<Sample> vertical_;
+};
 
 /// One pair of EdgeFirst YOLO11 feature maps: 4 DFL distributions and COCO class logits per cell.
 struct SmartYoloScale {

@@ -14,20 +14,28 @@ def aimbuddyVersionCode = providers.gradleProperty('aimbuddy.versionCode').getOr
 apply from: 'static-icon.gradle'
 
 // Keep the public C headers in source control, but take the matching runtime from
-// the pinned AAR. extractTFLiteRuntime runs before CMake.
+// the pinned AAR. Only its native library is used; the app calls the C API directly.
 configurations { tfliteRuntime }
+def liteRtVersion = '2.3.2'
 def tfliteRuntimeRoot = layout.buildDirectory.dir('tflite-runtime')
-dependencies { tfliteRuntime 'org.tensorflow:tensorflow-lite:2.14.0@aar' }
-def extractTFLiteRuntime = tasks.register('extractTFLiteRuntime', Sync) {
-    from({ configurations.tfliteRuntime.collect { zipTree(it) } }) {
-        include 'jni/arm64-v8a/libtensorflowlite_jni.so'
-        eachFile { path = path.replaceFirst(/^jni\//, 'lib/') }
+dependencies { tfliteRuntime "com.google.ai.edge.litert:litert:${liteRtVersion}@aar" }
+def extractTFLiteRuntime = tasks.register('extractTFLiteRuntime') {
+    inputs.property('liteRtVersion', liteRtVersion)
+    outputs.dir(tfliteRuntimeRoot)
+    doLast {
+        project.sync {
+            from(configurations.tfliteRuntime.collect { zipTree(it) }) {
+                include 'jni/arm64-v8a/libLiteRt.so'
+                eachFile { path = path.replaceFirst(/^jni\//, 'lib/') }
+            }
+            into(tfliteRuntimeRoot)
+        }
     }
-    into(tfliteRuntimeRoot)
 }
 tasks.whenTaskAdded { task ->
     if ((task.name.startsWith('externalNativeBuild') && !task.name.startsWith('externalNativeBuildClean')) ||
-            task.name.startsWith('configureCMake')) {
+            task.name.startsWith('configureCMake') ||
+            (task.name.startsWith('merge') && task.name.endsWith('JniLibFolders'))) {
         task.dependsOn(extractTFLiteRuntime)
     }
 }
@@ -156,7 +164,7 @@ android {
         release {
             // Falls back to the debug key only for local throwaway builds; the
             // taskGraph check below turns that fallback into a hard error on CI.
-            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            signingConfig = hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = true
             shrinkResources = true
             debuggable = false
@@ -221,10 +229,10 @@ android {
         }
     }
 
-    // Source sets for assets
     sourceSets {
         main {
             assets.srcDirs = ['src/main/assets']
+            jniLibs.srcDir(tfliteRuntimeRoot.get().asFile)
         }
     }
 
@@ -275,7 +283,7 @@ android {
 // certificate will differ and the installer reports a package conflict.
 gradle.taskGraph.whenReady { graph ->
     def buildsRelease = graph.allTasks.any {
-        it.path.startsWith("${project.path}:") && it.name ==~ /(?i)(assemble|bundle|package|install)Release/
+        it.path.startsWith("${project.path}:") && it.name ==~ /(?i)(assemble|bundle|package|install).*Release/
     }
     if (!buildsRelease) {
         return
@@ -315,8 +323,6 @@ dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
     // StateFlow, which carries the assist's state from the service to the screen
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
-    // C++ inference through the TFLite C API, with the XNNPACK CPU delegate.
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
     // Debug-only: keep tooling preview off the release build
     debugImplementation 'androidx.compose.ui:ui-tooling-preview'
     debugImplementation 'androidx.compose.ui:ui-tooling'

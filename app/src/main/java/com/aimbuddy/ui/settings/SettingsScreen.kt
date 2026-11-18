@@ -48,7 +48,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** One color the player can pick for the boxes around targets. */
-private class BoxColor(@StringRes val name: Int, val color: Color)
+private class BoxColor(@param:StringRes val name: Int, val color: Color)
 
 /** The colors offered for the boxes: bright ones that stand out against game scenery. */
 private val BoxColors = listOf(

@@ -28,7 +28,7 @@ Everything runs on the phone. The app's only network use is the model store and 
 | | |
 |---|---|
 | Runs on | Android 11 or newer, arm64 |
-| Sees with | An NCNN model on the CPU or through Vulkan, or an experimental colour matcher that needs no model |
+| Sees with | An NCNN model on the CPU or through Vulkan, a TFLite model through LiteRT/XNNPACK, or an experimental colour matcher that needs no model |
 | Aims with | A feedback controller that measures the game's camera while it aims |
 | Touches with | One extra finger added to the real touchscreen by a helper that Shizuku or root starts |
 | Draws with | Dear ImGui in a `TextureView`: corner marks, an aim point, two fields of view, readouts |
@@ -592,7 +592,7 @@ Each build generates its own launcher icon from a random seed; `-Paimbuddy.iconS
 
 ## Credits
 
-[NCNN](https://github.com/Tencent/ncnn) runs the model and [Dear ImGui](https://github.com/ocornut/imgui) draws the in-game menu. [Shizuku](https://github.com/RikkaApps/Shizuku) provides touch access without root. The app is built with Jetpack Compose and the Geist font. The detection models are made with [Ultralytics](https://github.com/ultralytics/ultralytics) YOLO. AimBuddy General learned from video labelled by sunxds, a model from [sunone_aimbot](https://github.com/SunOner/sunone_aimbot) by SunOner, and from the CS:GO, Apex Legends, Halo Infinite and Far Cry 6 sets of [Roboflow 100](https://universe.roboflow.com/roboflow-100) (CC BY 4.0); [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) lists every source. The full list, with licenses, is under Settings, About, Open source notices.
+[NCNN](https://github.com/Tencent/ncnn) runs NCNN models, [LiteRT](https://ai.google.dev/edge/litert) runs TFLite models, and [Dear ImGui](https://github.com/ocornut/imgui) draws the in-game menu. [Shizuku](https://github.com/RikkaApps/Shizuku) provides touch access without root. The app is built with Jetpack Compose and the Geist font. The detection models are made with [Ultralytics](https://github.com/ultralytics/ultralytics) YOLO. AimBuddy General learned from video labelled by sunxds, a model from [sunone_aimbot](https://github.com/SunOner/sunone_aimbot) by SunOner, and from the CS:GO, Apex Legends, Halo Infinite and Far Cry 6 sets of [Roboflow 100](https://universe.roboflow.com/roboflow-100) (CC BY 4.0); [docs/Training.md](docs/Training.md#aimbuddy-general-one-model-for-every-shooter) lists every source. The full list, with licenses, is under Settings, About, Open source notices.
 
 ## License
 

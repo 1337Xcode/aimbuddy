@@ -54,9 +54,10 @@ private:
     bool invoke();
     bool readOutputs();
     bool combineSmartOutputs();
-    void resize(const uint8_t* rgba, int side, int stride);
-    void fillProbe();
+    bool resize(const uint8_t* rgba, int side, int stride);
+    bool fillProbe();
     std::vector<uint8_t> rgb_;
+    RgbResizer resizer_;
 
     TfLiteModel* model_ = nullptr;
     TfLiteInterpreterOptions* options_ = nullptr;

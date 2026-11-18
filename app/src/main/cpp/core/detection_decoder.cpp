@@ -80,6 +80,25 @@ float largestCoordinate(const float* data, int rows, int cols, OutputLayout layo
     return largest;
 }
 
+bool hasPositiveScore(const float* data, int rows, int cols, const DecodeSpec& spec) {
+    if (spec.layout == OutputLayout::kEndToEnd) {
+        for (int i = 0; i < rows; ++i) {
+            const float score = at(data, cols, i, 4);
+            if (std::isfinite(score) && score > 0.0f) return true;
+        }
+        return false;
+    }
+    const bool channelsFirst = spec.layout == OutputLayout::kChannelsFirst;
+    const int anchors = channelsFirst ? cols : rows;
+    for (int i = 0; i < anchors; ++i) {
+        for (int c = 0; c < spec.classCount; ++c) {
+            const float score = channelsFirst ? at(data, cols, 4 + c, i) : at(data, cols, i, 4 + c);
+            if (std::isfinite(score) && score > 0.0f) return true;
+        }
+    }
+    return false;
+}
+
 /// Flags the sides of a corner-form box that lie on or beyond the model input border.
 uint8_t clipFlagsFor(float left, float top, float right, float bottom, float size) {
     uint8_t flags = kClipNone;

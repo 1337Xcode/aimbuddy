@@ -68,15 +68,27 @@ bool rgbToTensor(const uint8_t* rgb, size_t pixelCount, TensorType type, float s
     if (rgb == nullptr || out == nullptr || pixelCount > SIZE_MAX / 3) return false;
     const bool quantized = type == TensorType::kInt8 || type == TensorType::kUInt8;
     if (quantized && (!(scale > 0.0f) || !std::isfinite(scale))) return false;
+    if (type == TensorType::kFloat32) {
+        float* output = static_cast<float*>(out);
+        if (channelsFirst) {
+            for (size_t channel = 0; channel < 3; ++channel) {
+                float* plane = output + channel * pixelCount;
+                for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
+                    plane[pixel] = rgb[pixel * 3 + channel] / 255.0f;
+                }
+            }
+        } else {
+            for (size_t i = 0; i < pixelCount * 3; ++i) output[i] = rgb[i] / 255.0f;
+        }
+        return true;
+    }
     const int minimum = type == TensorType::kInt8 ? -128 : 0;
     const int maximum = type == TensorType::kInt8 ? 127 : 255;
     for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
         for (size_t channel = 0; channel < 3; ++channel) {
             const float normalized = rgb[pixel * 3 + channel] / 255.0f;
             const size_t index = channelsFirst ? channel * pixelCount + pixel : pixel * 3 + channel;
-            if (type == TensorType::kFloat32) {
-                static_cast<float*>(out)[index] = normalized;
-            } else if (type == TensorType::kFloat16) {
+            if (type == TensorType::kFloat16) {
                 static_cast<uint16_t*>(out)[index] = floatToFloat16(normalized);
             } else {
                 const int value = std::clamp(static_cast<int>(std::lround(normalized / scale + zeroPoint)), minimum, maximum);
@@ -162,25 +174,56 @@ float sigmoid(float value) {
 
 }  // namespace
 
-void resizeRgbRgba(const uint8_t* rgba, int side, int stride, int inputSize, uint8_t* out) {
-    if (rgba == nullptr || out == nullptr || side < 2 || inputSize <= 0 || stride < side * 4) return;
-    for (int y = 0; y < inputSize; ++y) {
-        int sy, b0, b1;
-        sourceCoordinate(y, side, inputSize, &sy, &b0, &b1);
-        const uint8_t* row0 = rgba + static_cast<size_t>(sy) * stride;
+bool RgbResizer::configure(int sourceSide, int targetSide) {
+    if (sourceSide == sourceSide_ && targetSide == targetSide_) return true;
+    if (sourceSide < 2 || targetSide <= 0) return false;
+    try {
+        std::vector<Sample> horizontal(targetSide);
+        std::vector<Sample> vertical(targetSide);
+        for (int i = 0; i < targetSide; ++i) {
+            Sample& x = horizontal[i];
+            Sample& y = vertical[i];
+            sourceCoordinate(i, sourceSide, targetSide, &x.source, &x.weight0, &x.weight1);
+            sourceCoordinate(i, sourceSide, targetSide, &y.source, &y.weight0, &y.weight1);
+        }
+        horizontal_.swap(horizontal);
+        vertical_.swap(vertical);
+        sourceSide_ = sourceSide;
+        targetSide_ = targetSide;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+void RgbResizer::resize(const uint8_t* rgba, int stride, uint8_t* out) const {
+    if (rgba == nullptr || out == nullptr || stride < sourceSide_ * 4 ||
+        horizontal_.size() != static_cast<size_t>(targetSide_) ||
+        vertical_.size() != static_cast<size_t>(targetSide_)) return;
+    for (int y = 0; y < targetSide_; ++y) {
+        const Sample& row = vertical_[y];
+        const uint8_t* row0 = rgba + static_cast<size_t>(row.source) * stride;
         const uint8_t* row1 = row0 + stride;
-        for (int x = 0; x < inputSize; ++x) {
-            int sx, a0, a1;
-            sourceCoordinate(x, side, inputSize, &sx, &a0, &a1);
-            const uint8_t* source0 = row0 + sx * 4;
-            const uint8_t* source1 = row1 + sx * 4;
+        for (int x = 0; x < targetSide_; ++x) {
+            const Sample& column = horizontal_[x];
+            const uint8_t* source0 = row0 + column.source * 4;
+            const uint8_t* source1 = row1 + column.source * 4;
             for (int channel = 0; channel < 3; ++channel) {
-                const int top = (source0[channel] * a0 + source0[4 + channel] * a1) >> 4;
-                const int bottom = (source1[channel] * a0 + source1[4 + channel] * a1) >> 4;
-                *out++ = static_cast<uint8_t>((top * b0 + bottom * b1 + (1 << 21)) >> 22);
+                const int top = (source0[channel] * column.weight0 + source0[4 + channel] * column.weight1) >> 4;
+                const int bottom = (source1[channel] * column.weight0 + source1[4 + channel] * column.weight1) >> 4;
+                const int upper = (row.weight0 * top) >> 16;
+                const int lower = (row.weight1 * bottom) >> 16;
+                *out++ = static_cast<uint8_t>((upper + lower + 2) >> 2);
             }
         }
     }
+}
+
+void RgbResizer::clear() {
+    sourceSide_ = 0;
+    targetSide_ = 0;
+    horizontal_.clear();
+    vertical_.clear();
 }
 
 bool decodeSmartYolo(int inputSize, const SmartYoloScale* scales, size_t count,

@@ -99,6 +99,14 @@ class OverlayView(context: Context) : TextureView(context), TextureView.SurfaceT
         val x = event.x
         val y = event.y
         renderer?.post { OverlayNative.touch(action, x, y) }
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            performClick()
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
         return true
     }
 

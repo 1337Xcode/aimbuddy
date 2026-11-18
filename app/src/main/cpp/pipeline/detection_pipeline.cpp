@@ -234,12 +234,14 @@ void DetectionPipeline::measureCameraMotion(const RoiFrame& frame) {
             motionTrace_.push_back(row);
         }
 #endif
+#if ENABLE_INFO_LOGGING
         slideSum_ += std::hypot(shift.dx, shift.dy) * scale;
         qualitySum_ += shift.quality;
         const float lookMs = static_cast<float>(steadyNowNs() - lookStartNs) * 1e-6f;
         lookMsSum_ += lookMs;
         lookMsMax_ = std::max(lookMsMax_, lookMs);
         ++slideFrames_;
+#endif
     }
     lastFrameNs_ = frame.captureTimeNs;
 }
@@ -461,6 +463,7 @@ void DetectionPipeline::recordStats(const DetectionBatch& batch, int64_t finishe
             bestScore = std::max(bestScore, batch.detections[i].score);
         }
         LOGI("Last frame: %d detections, best score %.2f", batch.count, bestScore);
+#if ENABLE_INFO_LOGGING
         if (cameraMotion_ != nullptr) {
             float slidePx = 0.0f;
             float quality = 0.0f;
@@ -487,6 +490,7 @@ void DetectionPipeline::recordStats(const DetectionBatch& batch, int64_t finishe
                      cameraMotion_->confidence());
             }
         }
+#endif
         lastLogNs_ = finishedNs;
     }
 }

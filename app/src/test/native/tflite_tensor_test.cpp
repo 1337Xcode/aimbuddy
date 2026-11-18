@@ -1,13 +1,24 @@
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 #include <limits>
+
+#include <tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h>
 
 #include "core/detection_decoder.h"
 #include "core/tflite_tensor.h"
 #include "test_harness.h"
 
 using namespace aimbuddy;
+
+// LiteRT 2.3.2 returns this struct by value; its old 32-byte declaration overran the caller's stack.
+static_assert(sizeof(TfLiteXNNPackDelegateOptions) == 64, "XNNPack options must match the LiteRT 2.3.2 ABI");
+static_assert(offsetof(TfLiteXNNPackDelegateOptions, runtime_flags) == 4, "Unexpected runtime_flags offset");
+static_assert(offsetof(TfLiteXNNPackDelegateOptions, flags) == 8, "Unexpected flags offset");
+static_assert(offsetof(TfLiteXNNPackDelegateOptions, weights_cache) == 16, "Unexpected weights_cache offset");
+static_assert(offsetof(TfLiteXNNPackDelegateOptions, weight_cache_file_path) == 32, "Unexpected cache path offset");
+static_assert(offsetof(TfLiteXNNPackDelegateOptions, weight_cache_provider) == 48, "Unexpected cache provider offset");
 
 namespace {
 
@@ -113,6 +124,28 @@ TEST(tflite_input_quantizes_planar_rgb_with_the_tensor_parameters) {
     CHECK(output[5] == 0);
     CHECK(output[8] == -128);
     CHECK(output[11] == -64);
+}
+
+TEST(tflite_resize_reuses_the_same_ncnn_sampling_with_padded_rows) {
+    const uint8_t pixels[2][2][3] = {{{0, 0, 0}, {40, 80, 120}}, {{80, 120, 160}, {160, 200, 240}}};
+    uint8_t rgba[24];
+    std::memset(rgba, 255, sizeof(rgba));
+    for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 2; ++x) {
+            for (int c = 0; c < 3; ++c) rgba[y * 12 + x * 4 + c] = pixels[y][x][c];
+        }
+    }
+    const int expected[9][3] = {{0, 0, 0}, {20, 40, 60}, {40, 80, 120},
+                                {40, 60, 80}, {70, 100, 130}, {100, 140, 180},
+                                {80, 120, 160}, {120, 160, 200}, {160, 200, 240}};
+    RgbResizer resizer;
+    CHECK(resizer.configure(2, 3));
+    CHECK(resizer.configure(2, 3));
+    uint8_t output[27] = {};
+    resizer.resize(rgba, 12, output);
+    for (int i = 0; i < 9; ++i) {
+        for (int c = 0; c < 3; ++c) CHECK(output[i * 3 + c] == expected[i][c]);
+    }
 }
 
 TEST(tflite_quantized_tensors_decode_in_both_yolo_layouts) {

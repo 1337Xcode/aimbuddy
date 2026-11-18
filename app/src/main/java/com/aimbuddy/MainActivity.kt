@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -20,6 +19,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -364,7 +365,7 @@ class MainActivity : AppCompatActivity() {
                     TextButton(onClick = {
                         showOverlayDialog = false
                         overlayPermissionLauncher.launch(
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:$packageName".toUri())
                         )
                     }) { Text(stringResource(R.string.overlay_open_settings)) }
                 },
@@ -397,7 +398,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun dismissNotice() {
         showNotice = false
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(PREF_NOTICE_SHOWN, true).apply()
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit { putBoolean(PREF_NOTICE_SHOWN, true) }
     }
 
     /** Whether the player has been taken to the models screen to get a first model. */
@@ -405,7 +406,7 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_MODEL_GUIDE_SHOWN, false)
 
     private fun markModelGuideShown() {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(PREF_MODEL_GUIDE_SHOWN, true).apply()
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit { putBoolean(PREF_MODEL_GUIDE_SHOWN, true) }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -560,12 +561,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         viewModel.post(UiMessage(R.string.update_allow_installs))
-        installPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+        installPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:$packageName".toUri()))
     }
 
     private fun openUrl(url: String) {
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
         } catch (e: ActivityNotFoundException) {
             viewModel.post(UiMessage(R.string.no_browser))
         }

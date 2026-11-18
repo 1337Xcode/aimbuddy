@@ -1,6 +1,7 @@
 package com.aimbuddy.playground
 
 import android.content.Intent
+import androidx.core.graphics.toColorInt
 
 /**
  * How one run of the playground behaves, read from the extras of the intent that starts it, for
@@ -60,7 +61,7 @@ internal data class PlaygroundConfig(
             fingerTest = intent.getBooleanExtra("fingerTest", false),
             ignoreTouches = intent.getIntExtra("ignoreTouches", 0),
             dumpMs = intent.getIntExtra("dumpMs", 0),
-            highlight = intent.getStringExtra("highlight")?.let { android.graphics.Color.parseColor("#" + it.removePrefix("#")) } ?: 0,
+            highlight = intent.getStringExtra("highlight")?.let { ("#" + it.removePrefix("#")).toColorInt() } ?: 0,
         )
     }
 }

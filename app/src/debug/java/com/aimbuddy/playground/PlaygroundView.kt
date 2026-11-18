@@ -1,5 +1,6 @@
 package com.aimbuddy.playground
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,6 +12,7 @@ import android.os.SystemClock
 import android.util.SparseArray
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.util.size
 import com.aimbuddy.DebugHooks
 import java.io.File
 import java.util.ArrayDeque
@@ -28,6 +30,7 @@ import kotlin.math.sin
  * camera by `gain` times that many screen pixels' worth of degrees, `delayMs` later. Fingers that
  * start on the stand-in buttons (the fire button and the joystick) do not turn the camera.
  */
+@SuppressLint("ViewConstructor")
 internal class PlaygroundView(
     context: Context,
     private val config: PlaygroundConfig,
@@ -338,13 +341,21 @@ internal class PlaygroundView(
                 pointers.remove(id)
                 if (id == lookPointerId) lookPointerId = -1
                 updateFire()
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    performClick()
+                }
             }
         }
         return true
     }
 
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     private fun updateFire() {
-        fireHeld = (0 until pointers.size()).any {
+        fireHeld = (0 until pointers.size).any {
             val pointer = pointers.valueAt(it)
             pointer.role == Role.BUTTON && hypot(pointer.x - width * FIRE_X, pointer.y - height * FIRE_Y) <= buttonRadius() * 1.5f
         }

@@ -24,6 +24,23 @@
       }
     },
     {
+      "id": "pubg-mobile-v26n",
+      "title": "PUBG Mobile YOLO26n",
+      "description": "Player detector trained on PUBG Mobile captures. Float32, 640-pixel input, end-to-end NMS output.",
+      "author": "community",
+      "version": 1,
+      "tflite": {
+        "path": "pubg-mobile-v26n/model.tflite",
+        "size": 9859196,
+        "sha256": "210b85030e690d0ea3403a1bca3a5679429197677299d5a39cd0ecc34088c32b"
+      },
+      "profile": {
+        "path": "pubg-mobile-v26n/model.json",
+        "size": 291,
+        "sha256": "4f1ccfbb1f44347fd5c9592330c2ff3ffe26010b769817e54394a2b6bd2473aa"
+      }
+    },
+    {
       "id": "valorant-256-v26n",
       "title": "Valorant 256 YOLO26n INT8",
       "description": "Small game-specific body and head detector. INT8, 256-pixel input. Accuracy and latency require device testing.",

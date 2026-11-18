@@ -131,14 +131,14 @@ message(STATUS "NCNN library: ${NCNN_LIBRARY}")
 message(STATUS "NCNN include: ${NCNN_INCLUDE_DIR}")
 
 # =============================================================================
-# TensorFlow Lite C API. The Java AAR supplies the runtime; this is the same
-# library loaded by its Java bindings, so no second inference runtime is added.
+# LiteRT C API (formerly TensorFlow Lite). The AAR supplies the runtime; this is
+# the same library loaded by its Java bindings, so no second inference runtime is added.
 # Gradle extracts the AAR before configuring CMake.
 # =============================================================================
 set(TFLITE_ROOT ${TFLITE_RUNTIME_ROOT})
-set(TFLITE_LIBRARY ${TFLITE_ROOT}/lib/${ANDROID_ABI}/libtensorflowlite_jni.so)
+set(TFLITE_LIBRARY ${TFLITE_ROOT}/lib/${ANDROID_ABI}/libLiteRt.so)
 if(NOT EXISTS ${TFLITE_LIBRARY})
-    message(FATAL_ERROR "TFLite runtime not found at ${TFLITE_LIBRARY}")
+    message(FATAL_ERROR "LiteRT runtime not found at ${TFLITE_LIBRARY}")
 endif()
 add_library(tflite_runtime SHARED IMPORTED)
 set_target_properties(tflite_runtime PROPERTIES IMPORTED_LOCATION ${TFLITE_LIBRARY})

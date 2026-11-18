@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.annotation.StringRes
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aimbuddy.BuildConfig
@@ -70,7 +71,7 @@ private class UnreadableModelException(
 ) : IllegalStateException(message)
 
 /** A short message for the player, shown once. */
-data class UiMessage(@StringRes val resId: Int, val args: List<Any> = emptyList())
+data class UiMessage(@param:StringRes val resId: Int, val args: List<Any> = emptyList())
 
 /** How the app's look is set. Kept in the app's preferences. */
 data class Appearance(val mode: ThemeMode = ThemeMode.SYSTEM, val accent: Accent = Accent.BLUE)
@@ -216,10 +217,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateAppearance(change: (Appearance) -> Appearance) {
         val updated = change(_appearance.value)
         _appearance.value = updated
-        preferences.edit()
-            .putString(KEY_THEME_MODE, updated.mode.name)
-            .putString(KEY_ACCENT, updated.accent.name)
-            .apply()
+        preferences.edit {
+            putString(KEY_THEME_MODE, updated.mode.name)
+            putString(KEY_ACCENT, updated.accent.name)
+        }
     }
 
     private fun readAppearance(): Appearance = Appearance(
@@ -234,7 +235,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Whether the app looks for a newer version by itself when it starts. */
     fun setAutoUpdateCheck(enabled: Boolean) {
         _autoUpdateCheck.value = enabled
-        preferences.edit().putBoolean(KEY_AUTO_UPDATE_CHECK, enabled).apply()
+        preferences.edit { putBoolean(KEY_AUTO_UPDATE_CHECK, enabled) }
     }
 
     /**
@@ -902,7 +903,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ),
             makeActive = false,
         )
-        preferences.edit().remove(KEY_LEGACY_PARAM).remove(KEY_LEGACY_BIN).apply()
+        preferences.edit {
+            remove(KEY_LEGACY_PARAM)
+            remove(KEY_LEGACY_BIN)
+        }
     }
 
     private companion object {

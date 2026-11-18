@@ -62,6 +62,8 @@ The app saves this file next to the model and reads `roles`, `inputSize`, `endTo
 
 The optional `yolo26n-pose` model is a float32, 640-pixel TFLite export of Ultralytics YOLO26n-pose. It is a general COCO model, not a game-specific detector. See [its provenance and validation notes](yolo26n-pose/README.md).
 
+The optional `pubg-mobile-v26n` model is a float32, 640-pixel TFLite export of Ultralytics YOLO26n trained on PUBG Mobile captures, with one `head-person` class used as a body. See [its provenance and validation notes](pubg-mobile-v26n/README.md).
+
 The optional `valorant-256-v26n` model is a 2.7 MB INT8 `body,head` detector imported from the GPL-3.0 Auto-aim_android-yolo repository. Its raw normalized output and tensor quantization have been checked on the host; see [its provenance and validation notes](valorant-256-v26n/README.md).
 
 A physical-device benchmark is still needed before promising a particular inference time.

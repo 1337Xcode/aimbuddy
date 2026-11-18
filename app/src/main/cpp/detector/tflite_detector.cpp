@@ -152,8 +152,7 @@ bool TFLiteDetector::load(const char* modelPath, const ModelProfile& profile) {
         return fail("TFLite could not allocate this model's tensors");
     }
     if (!prepareInput() || !prepareOutputs()) return false;
-    fillProbe();
-    if (!invoke() || !readOutputs() || (smart_ && !combineSmartOutputs())) {
+    if (!fillProbe() || !invoke() || !readOutputs() || (smart_ && !combineSmartOutputs())) {
         return fail("TFLite could not run a warm-up inference on this model");
     }
     if (profile.inputSize > 0 && profile.inputSize != inputSize_) {
@@ -288,19 +287,23 @@ bool TFLiteDetector::prepareSmartOutputs() {
     return true;
 }
 
-void TFLiteDetector::fillProbe() {
+bool TFLiteDetector::fillProbe() {
     // A neutral square exercises the same input conversion and output path as a real frame.
-    resize(nullptr, 0, 0);
+    return resize(nullptr, 0, 0);
 }
 
-void TFLiteDetector::resize(const uint8_t* rgba, int side, int stride) {
+bool TFLiteDetector::resize(const uint8_t* rgba, int side, int stride) {
     if (rgba == nullptr) {
         std::fill(rgb_.begin(), rgb_.end(), 114);
     } else {
-        resizeRgbRgba(rgba, side, stride, inputSize_, rgb_.data());
+        if (!resizer_.configure(side, inputSize_)) return fail("Not enough memory to prepare the image resize map");
+        resizer_.resize(rgba, stride, rgb_.data());
     }
-    rgbToTensor(rgb_.data(), static_cast<size_t>(inputSize_) * inputSize_, inputType_, inputScale_, inputZeroPoint_,
-                inputChannelsFirst_, TfLiteTensorData(input_));
+    if (!rgbToTensor(rgb_.data(), static_cast<size_t>(inputSize_) * inputSize_, inputType_, inputScale_, inputZeroPoint_,
+                     inputChannelsFirst_, TfLiteTensorData(input_))) {
+        return fail("Could not prepare the TFLite input tensor");
+    }
+    return true;
 }
 
 bool TFLiteDetector::invoke() {
@@ -315,8 +318,9 @@ bool TFLiteDetector::readOutputs() {
                         &view, &error) || view.elements != output.values.size()) {
             return fail("The TFLite output changed shape after warm-up; fixed-shape exports are required");
         }
+        float* destination = smart_ ? output.values.data() : output_.data();
         if (!tensorToFloat(TfLiteTensorData(output.tensor), output.type, output.values.size(), output.scale,
-                           output.zeroPoint, output.values.data())) {
+                           output.zeroPoint, destination)) {
             return fail("Could not read a TFLite output tensor");
         }
     }
@@ -344,6 +348,7 @@ void TFLiteDetector::unload() {
     model_ = nullptr;
     input_ = nullptr;
     rgb_.clear();
+    resizer_.clear();
     outputs_.clear();
     smartScales_.clear();
     output_.clear();
@@ -360,7 +365,7 @@ bool TFLiteDetector::detect(const RoiFrame& frame, DetectionBatch& batch) {
     const int side = frame.roi.side;
     if (side <= 0 || frame.rgba.size() < static_cast<size_t>(side) * side * 4) return false;
     const auto start = std::chrono::steady_clock::now();
-    resize(frame.rgba.data(), side, side * 4);
+    if (!resize(frame.rgba.data(), side, side * 4)) return false;
     if (!invoke() || !readOutputs() || (smart_ && !combineSmartOutputs())) return false;
     DecodeParams params;
     params.minScore = minScore_.load(std::memory_order_relaxed);

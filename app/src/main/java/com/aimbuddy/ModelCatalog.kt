@@ -2,6 +2,7 @@ package com.aimbuddy
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -80,7 +81,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             val chosenId = prefs.getString(KEY_ACTIVE_MODEL_ID, null)
             val activeId = chooseActive(loadInstalledModels(), chosenId)?.id
             if (activeId != chosenId) {
-                prefs.edit().putString(KEY_ACTIVE_MODEL_ID, activeId).apply()
+                prefs.edit { putString(KEY_ACTIVE_MODEL_ID, activeId) }
             }
         }
     }
@@ -113,7 +114,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
         saveInstalledModels(models)
 
         if (makeActive) {
-            prefs.edit().putString(KEY_ACTIVE_MODEL_ID, model.id).apply()
+            prefs.edit { putString(KEY_ACTIVE_MODEL_ID, model.id) }
         }
     }
 
@@ -128,7 +129,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
 
         val activeId = prefs.getString(KEY_ACTIVE_MODEL_ID, null)
         if (activeId == modelId) {
-            prefs.edit().putString(KEY_ACTIVE_MODEL_ID, chooseActive(models, null)?.id).apply()
+            prefs.edit { putString(KEY_ACTIVE_MODEL_ID, chooseActive(models, null)?.id) }
         }
         true
     }
@@ -139,7 +140,7 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
         if (!model.canUse()) {
             return false
         }
-        prefs.edit().putString(KEY_ACTIVE_MODEL_ID, modelId).apply()
+        prefs.edit { putString(KEY_ACTIVE_MODEL_ID, modelId) }
         true
     }
 
@@ -229,6 +230,6 @@ class ModelCatalog internal constructor(private val modelsDir: File, private val
             obj.put("version", model.version)
             arr.put(obj)
         }
-        prefs.edit().putString(KEY_INSTALLED_MODELS_JSON, arr.toString()).apply()
+        prefs.edit { putString(KEY_INSTALLED_MODELS_JSON, arr.toString()) }
     }
 }

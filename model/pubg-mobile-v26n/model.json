@@ -1,0 +1,10 @@
+{
+  "title": "PUBG Mobile YOLO26n",
+  "description": "Player detector trained on PUBG Mobile captures. Float32, 640-pixel input, end-to-end NMS output.",
+  "author": "community",
+  "version": 1,
+  "roles": ["body"],
+  "inputSize": 640,
+  "endToEnd": true,
+  "normalizedCoordinates": false
+}

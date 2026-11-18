@@ -1,5 +1,6 @@
 package com.aimbuddy
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
@@ -419,6 +420,7 @@ class OverlayController(
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun addIcon() {
         val sizePx = (ICON_SIZE_DP * context.resources.displayMetrics.density).toInt()
         val view = StaticBubbleView(context).apply {

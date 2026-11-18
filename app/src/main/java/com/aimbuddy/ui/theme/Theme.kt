@@ -25,7 +25,7 @@ enum class ThemeMode { SYSTEM, DARK, LIGHT }
  * The color the app uses for buttons, switches and highlights. Each one has a bright form for the
  * dark theme and a deeper form for the light theme, so text and marks on it stay readable in both.
  */
-enum class Accent(@StringRes val label: Int, val dark: Color, val light: Color) {
+enum class Accent(@param:StringRes val label: Int, val dark: Color, val light: Color) {
     BLUE(R.string.color_blue, Color(0xFF0A84FF), Color(0xFF007AFF)),
     INDIGO(R.string.color_indigo, Color(0xFF5E5CE6), Color(0xFF5856D6)),
     PURPLE(R.string.color_purple, Color(0xFFBF5AF2), Color(0xFF8944AB)),

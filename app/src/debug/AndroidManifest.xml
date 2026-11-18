@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Lets a debug build fetch an update from a server on the developer's computer (see UPDATE_API_OVERRIDE). -->
     <application android:usesCleartextTraffic="true">
@@ -10,6 +11,7 @@
             android:label="Playground"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:screenOrientation="sensorLandscape"
+            tools:ignore="DiscouragedApi"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
 </manifest>
